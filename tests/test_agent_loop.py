@@ -1,7 +1,8 @@
 from unittest.mock import AsyncMock, patch
 from collections.abc import AsyncIterator
 
-from agent.loop import run_agent_loop
+from agent.agent import Agent
+from ai.contracts import Reasoning
 from openai.types.responses.response_created_event import ResponseCreatedEvent
 from openai.types.responses.response_in_progress_event import ResponseInProgressEvent
 from openai.types.responses.response_output_item_added_event import (
@@ -22,13 +23,19 @@ class FakeResponsesClient:
     def __init__(self, events: list[object]) -> None:
         self._events = events
 
-    async def create(self, prompt: str, model: str) -> FakeResponseStream:
+    async def create(
+        self,
+        prompt: str,
+        model: str,
+        reasoning: Reasoning | None,
+    ) -> FakeResponseStream:
         assert model == "gpt-5.4"
         assert prompt == "hello"
+        assert reasoning == {"effort": "medium"}
         return FakeResponseStream(self._events)
 
 
-def test_run_agent_loop_dispatches_supported_events() -> None:
+def test_agent_run_dispatches_supported_events() -> None:
     created_event = ResponseCreatedEvent.model_validate(
         {
             "type": "response.created",
@@ -80,24 +87,29 @@ def test_run_agent_loop_dispatches_supported_events() -> None:
     stream_fn = FakeResponsesClient(
         [created_event, in_progress_event, output_item_added_event]
     ).create
+    agent = Agent(
+        stream_fn=stream_fn,
+        model="gpt-5.4",
+        reasoning={"effort": "medium"},
+    )
 
     with (
         patch(
-            "agent.loop.handle_response_created_event",
+            "agent.agent.handle_response_created_event",
             new_callable=AsyncMock,
         ) as handle_created,
         patch(
-            "agent.loop.handle_response_in_progress_event",
+            "agent.agent.handle_response_in_progress_event",
             new_callable=AsyncMock,
         ) as handle_in_progress,
         patch(
-            "agent.loop.handle_response_output_item_added_event",
+            "agent.agent.handle_response_output_item_added_event",
             new_callable=AsyncMock,
         ) as handle_output_item_added,
     ):
         import asyncio
 
-        asyncio.run(run_agent_loop(stream_fn, "hello", "gpt-5.4"))
+        asyncio.run(agent.run("hello"))
 
     handle_created.assert_awaited_once_with(created_event)
     handle_in_progress.assert_awaited_once_with(in_progress_event)

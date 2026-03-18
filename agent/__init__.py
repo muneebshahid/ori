@@ -1,3 +1,3 @@
-from agent.loop import run_agent_loop
+from agent.agent import Agent, AgentState
 
-__all__ = ["run_agent_loop"]
+__all__ = ["Agent", "AgentState"]
