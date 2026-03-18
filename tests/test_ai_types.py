@@ -1,4 +1,4 @@
-from llm.types import (
+from ai.types import (
     ResponseCreatedEvent,
     ResponseInProgressEvent,
     ResponseOutputItemAddedEvent,
