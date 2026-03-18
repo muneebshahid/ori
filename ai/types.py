@@ -1,59 +1,105 @@
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
-class ResponseCreatedEvent(BaseModel):
-    """Emitted when a response is first created and assigned an ID."""
+class TextBlock(BaseModel):
+    """A streamed assistant text block."""
 
-    type: Literal["response.created"]
-    sequence_number: int
-    response: "ResponseInfo"
-
-
-class ResponseInProgressEvent(BaseModel):
-    """Emitted while a response is actively being processed by the model."""
-
-    type: Literal["response.in_progress"]
-    sequence_number: int
-    response: "ResponseInfo"
+    type: Literal["text"]
+    text: str
 
 
-class ResponseOutputItemAddedEvent(BaseModel):
-    """Emitted when a new output item, like text, reasoning, or a tool call, starts streaming."""
+class ReasoningBlock(BaseModel):
+    """A streamed assistant reasoning block."""
 
-    type: Literal["response.output_item.added"]
-    sequence_number: int
-    output_index: int
-    item: "ResponseOutputMessageItem | ResponseReasoningItem | ResponseFunctionToolCallItem"
-
-
-class ResponseInfo(BaseModel):
-    id: str
-    model: str
-    status: str
-
-
-class ResponseOutputMessageItem(BaseModel):
-    id: str
-    type: Literal["message"]
-    status: str | None = None
-
-
-class ResponseReasoningItem(BaseModel):
-    id: str
     type: Literal["reasoning"]
-    status: str | None = None
+    reasoning: str
+    reasoning_id: str | None = None
 
 
-class ResponseFunctionToolCallItem(BaseModel):
-    id: str
-    type: Literal["function_call"]
-    status: str | None = None
-    call_id: str
-    name: str
+class AssistantMessage(BaseModel):
+    """The partial or final assistant message assembled during streaming."""
+
+    role: Literal["assistant"] = "assistant"
+    content: list[TextBlock | ReasoningBlock] = Field(default_factory=list)
+    response_id: str | None = None
 
 
-ResponseCreatedEvent.model_rebuild()
-ResponseInProgressEvent.model_rebuild()
-ResponseOutputItemAddedEvent.model_rebuild()
+class StreamStartEvent(BaseModel):
+    """Marks the start of a new assistant stream with an empty partial message."""
+
+    type: Literal["start"]
+    partial: AssistantMessage
+
+
+class ReasoningStartEvent(BaseModel):
+    """Marks the start of a reasoning block."""
+
+    type: Literal["reasoning_start"]
+    partial: AssistantMessage
+
+
+class ReasoningDeltaEvent(BaseModel):
+    """Carries incremental reasoning text for the current reasoning block."""
+
+    type: Literal["reasoning_delta"]
+    delta: str
+    partial: AssistantMessage
+
+
+class ReasoningEndEvent(BaseModel):
+    """Marks the end of the current reasoning block."""
+
+    type: Literal["reasoning_end"]
+    partial: AssistantMessage
+
+
+class TextStartEvent(BaseModel):
+    """Marks the start of a text block."""
+
+    type: Literal["text_start"]
+    partial: AssistantMessage
+
+
+class TextDeltaEvent(BaseModel):
+    """Carries incremental text for the current text block."""
+
+    type: Literal["text_delta"]
+    delta: str
+    partial: AssistantMessage
+
+
+class TextEndEvent(BaseModel):
+    """Marks the end of the current text block."""
+
+    type: Literal["text_end"]
+    partial: AssistantMessage
+
+
+class StreamDoneEvent(BaseModel):
+    """Marks successful stream completion with the final assistant message."""
+
+    type: Literal["done"]
+    message: AssistantMessage
+
+
+class StreamErrorEvent(BaseModel):
+    """Marks failed stream completion with the latest partial assistant message."""
+
+    type: Literal["error"]
+    message: str
+    partial: AssistantMessage | None = None
+
+
+StreamEvent = (
+    StreamStartEvent
+    | ReasoningStartEvent
+    | ReasoningDeltaEvent
+    | ReasoningEndEvent
+    | TextStartEvent
+    | TextDeltaEvent
+    | TextEndEvent
+    | StreamDoneEvent
+    | StreamErrorEvent
+)
