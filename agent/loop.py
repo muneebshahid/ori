@@ -1,18 +1,15 @@
-from collections.abc import AsyncIterator
-from typing import Callable, Awaitable, Protocol
+from collections.abc import Awaitable
+from typing import Callable
 
 from openai.types.responses.response_created_event import ResponseCreatedEvent
 from openai.types.responses.response_in_progress_event import ResponseInProgressEvent
 from openai.types.responses.response_output_item_added_event import (
     ResponseOutputItemAddedEvent,
 )
+from ai.contracts import AsyncEventStream
 
 
-class ResponseEventStream(Protocol):
-    def __aiter__(self) -> AsyncIterator[object]: ...
-
-
-StreamFn = Callable[[str, str], Awaitable[ResponseEventStream]]
+StreamFn = Callable[[str, str], Awaitable[AsyncEventStream]]
 
 
 async def run_agent_loop(
