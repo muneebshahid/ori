@@ -1,9 +1,11 @@
 from collections.abc import AsyncIterator
 from typing import Literal, Protocol, TypedDict
 
+from ai.types import StreamEvent
+
 
 class AsyncEventStream(Protocol):
-    def __aiter__(self) -> AsyncIterator[object]: ...
+    def __aiter__(self) -> AsyncIterator[StreamEvent]: ...
 
 
 class Reasoning(TypedDict, total=False):
