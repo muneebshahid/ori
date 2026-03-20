@@ -1,0 +1,591 @@
+import asyncio
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
+from typing import TypeAlias, TypeVar, cast
+from unittest.mock import AsyncMock
+
+from ai.types import (
+    ReasoningBlock,
+    ReasoningDeltaEvent,
+    ReasoningEndEvent,
+    ReasoningStartEvent,
+    StreamDoneEvent,
+    StreamErrorEvent,
+    StreamEvent,
+    StreamStartEvent,
+    TextBlock,
+    TextDeltaEvent,
+    TextEndEvent,
+    TextStartEvent,
+)
+from ai.providers.openai_responses import stream
+from openai import AsyncOpenAI
+from openai.types.responses.response_completed_event import ResponseCompletedEvent
+from openai.types.responses.response_content_part_added_event import (
+    ResponseContentPartAddedEvent,
+)
+from openai.types.responses.response_created_event import ResponseCreatedEvent
+from openai.types.responses.response_failed_event import ResponseFailedEvent
+from openai.types.responses.response_output_item_added_event import (
+    ResponseOutputItemAddedEvent,
+)
+from openai.types.responses.response_output_item_done_event import (
+    ResponseOutputItemDoneEvent,
+)
+from openai.types.responses.response_reasoning_summary_part_added_event import (
+    ResponseReasoningSummaryPartAddedEvent,
+)
+from openai.types.responses.response_reasoning_summary_part_done_event import (
+    ResponseReasoningSummaryPartDoneEvent,
+)
+from openai.types.responses.response_reasoning_summary_text_delta_event import (
+    ResponseReasoningSummaryTextDeltaEvent,
+)
+from openai.types.responses.response_refusal_delta_event import (
+    ResponseRefusalDeltaEvent,
+)
+from openai.types.responses.response_text_delta_event import ResponseTextDeltaEvent
+
+
+RawResponseEvent: TypeAlias = (
+    ResponseCompletedEvent
+    | ResponseContentPartAddedEvent
+    | ResponseCreatedEvent
+    | ResponseFailedEvent
+    | ResponseOutputItemAddedEvent
+    | ResponseOutputItemDoneEvent
+    | ResponseReasoningSummaryPartAddedEvent
+    | ResponseReasoningSummaryPartDoneEvent
+    | ResponseReasoningSummaryTextDeltaEvent
+    | ResponseRefusalDeltaEvent
+    | ResponseTextDeltaEvent
+)
+
+TEvent = TypeVar("TEvent", bound=StreamEvent)
+
+
+@dataclass
+class FakeResponsesEndpoint:
+    create: AsyncMock
+
+
+@dataclass
+class FakeOpenAIClient:
+    responses: FakeResponsesEndpoint
+
+
+def _raw_stream(events: list[RawResponseEvent]) -> AsyncIterator[RawResponseEvent]:
+    async def _iterate() -> AsyncIterator[RawResponseEvent]:
+        for event in events:
+            yield event
+
+    return _iterate()
+
+
+def _build_client(events: list[RawResponseEvent]) -> FakeOpenAIClient:
+    return FakeOpenAIClient(
+        responses=FakeResponsesEndpoint(
+            create=AsyncMock(return_value=_raw_stream(events))
+        )
+    )
+
+
+def _response_payload(
+    response_id: str,
+    status: str,
+    *,
+    error: dict[str, str] | None = None,
+) -> dict[str, object]:
+    return {
+        "id": response_id,
+        "created_at": 0.0,
+        "error": error,
+        "model": "gpt-5.4",
+        "object": "response",
+        "output": [],
+        "parallel_tool_calls": False,
+        "tool_choice": "auto",
+        "tools": [],
+        "status": status,
+    }
+
+
+def _created_event(sequence_number: int, response_id: str) -> ResponseCreatedEvent:
+    return ResponseCreatedEvent.model_validate(
+        {
+            "type": "response.created",
+            "sequence_number": sequence_number,
+            "response": _response_payload(response_id, "in_progress"),
+        }
+    )
+
+
+def _completed_event(
+    sequence_number: int,
+    response_id: str,
+) -> ResponseCompletedEvent:
+    return ResponseCompletedEvent.model_validate(
+        {
+            "type": "response.completed",
+            "sequence_number": sequence_number,
+            "response": _response_payload(response_id, "completed"),
+        }
+    )
+
+
+def _failed_event(
+    sequence_number: int,
+    response_id: str,
+    message: str,
+) -> ResponseFailedEvent:
+    return ResponseFailedEvent.model_validate(
+        {
+            "type": "response.failed",
+            "sequence_number": sequence_number,
+            "response": _response_payload(
+                response_id,
+                "failed",
+                error={"code": "server_error", "message": message},
+            ),
+        }
+    )
+
+
+def _reasoning_added_event(
+    sequence_number: int,
+    item_id: str,
+    *,
+    output_index: int = 0,
+) -> ResponseOutputItemAddedEvent:
+    return ResponseOutputItemAddedEvent.model_validate(
+        {
+            "type": "response.output_item.added",
+            "sequence_number": sequence_number,
+            "output_index": output_index,
+            "item": {
+                "id": item_id,
+                "type": "reasoning",
+                "summary": [],
+                "status": "in_progress",
+            },
+        }
+    )
+
+
+def _reasoning_summary_part_added_event(
+    sequence_number: int,
+    item_id: str,
+    summary_index: int,
+    *,
+    output_index: int = 0,
+) -> ResponseReasoningSummaryPartAddedEvent:
+    return ResponseReasoningSummaryPartAddedEvent.model_validate(
+        {
+            "type": "response.reasoning_summary_part.added",
+            "sequence_number": sequence_number,
+            "item_id": item_id,
+            "output_index": output_index,
+            "part": {"type": "summary_text", "text": ""},
+            "summary_index": summary_index,
+        }
+    )
+
+
+def _reasoning_summary_delta_event(
+    sequence_number: int,
+    item_id: str,
+    summary_index: int,
+    delta: str,
+    *,
+    output_index: int = 0,
+) -> ResponseReasoningSummaryTextDeltaEvent:
+    return ResponseReasoningSummaryTextDeltaEvent.model_validate(
+        {
+            "type": "response.reasoning_summary_text.delta",
+            "sequence_number": sequence_number,
+            "item_id": item_id,
+            "output_index": output_index,
+            "summary_index": summary_index,
+            "delta": delta,
+        }
+    )
+
+
+def _reasoning_summary_part_done_event(
+    sequence_number: int,
+    item_id: str,
+    summary_index: int,
+    text: str,
+    *,
+    output_index: int = 0,
+) -> ResponseReasoningSummaryPartDoneEvent:
+    return ResponseReasoningSummaryPartDoneEvent.model_validate(
+        {
+            "type": "response.reasoning_summary_part.done",
+            "sequence_number": sequence_number,
+            "item_id": item_id,
+            "output_index": output_index,
+            "part": {"type": "summary_text", "text": text},
+            "summary_index": summary_index,
+        }
+    )
+
+
+def _reasoning_done_event(
+    sequence_number: int,
+    item_id: str,
+    summary_texts: list[str],
+    *,
+    output_index: int = 0,
+) -> ResponseOutputItemDoneEvent:
+    return ResponseOutputItemDoneEvent.model_validate(
+        {
+            "type": "response.output_item.done",
+            "sequence_number": sequence_number,
+            "output_index": output_index,
+            "item": {
+                "id": item_id,
+                "type": "reasoning",
+                "summary": [
+                    {"type": "summary_text", "text": text} for text in summary_texts
+                ],
+                "status": "completed",
+            },
+        }
+    )
+
+
+def _message_added_event(
+    sequence_number: int,
+    item_id: str,
+    *,
+    output_index: int = 1,
+) -> ResponseOutputItemAddedEvent:
+    return ResponseOutputItemAddedEvent.model_validate(
+        {
+            "type": "response.output_item.added",
+            "sequence_number": sequence_number,
+            "output_index": output_index,
+            "item": {
+                "id": item_id,
+                "type": "message",
+                "status": "in_progress",
+                "role": "assistant",
+                "content": [],
+            },
+        }
+    )
+
+
+def _content_part_added_event(
+    sequence_number: int,
+    item_id: str,
+    part_type: str,
+    *,
+    output_index: int = 1,
+    content_index: int = 0,
+) -> ResponseContentPartAddedEvent:
+    if part_type == "output_text":
+        part: dict[str, object] = {
+            "type": "output_text",
+            "text": "",
+            "annotations": [],
+        }
+    else:
+        part = {"type": "refusal", "refusal": ""}
+
+    return ResponseContentPartAddedEvent.model_validate(
+        {
+            "type": "response.content_part.added",
+            "sequence_number": sequence_number,
+            "output_index": output_index,
+            "item_id": item_id,
+            "content_index": content_index,
+            "part": part,
+        }
+    )
+
+
+def _text_delta_event(
+    sequence_number: int,
+    item_id: str,
+    delta: str,
+    *,
+    output_index: int = 1,
+    content_index: int = 0,
+) -> ResponseTextDeltaEvent:
+    return ResponseTextDeltaEvent.model_validate(
+        {
+            "type": "response.output_text.delta",
+            "sequence_number": sequence_number,
+            "output_index": output_index,
+            "item_id": item_id,
+            "content_index": content_index,
+            "delta": delta,
+            "logprobs": [],
+        }
+    )
+
+
+def _refusal_delta_event(
+    sequence_number: int,
+    item_id: str,
+    delta: str,
+    *,
+    output_index: int = 1,
+    content_index: int = 0,
+) -> ResponseRefusalDeltaEvent:
+    return ResponseRefusalDeltaEvent.model_validate(
+        {
+            "type": "response.refusal.delta",
+            "sequence_number": sequence_number,
+            "output_index": output_index,
+            "item_id": item_id,
+            "content_index": content_index,
+            "delta": delta,
+        }
+    )
+
+
+def _message_done_event(
+    sequence_number: int,
+    item_id: str,
+    content: list[dict[str, object]],
+    *,
+    output_index: int = 1,
+) -> ResponseOutputItemDoneEvent:
+    return ResponseOutputItemDoneEvent.model_validate(
+        {
+            "type": "response.output_item.done",
+            "sequence_number": sequence_number,
+            "output_index": output_index,
+            "item": {
+                "id": item_id,
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "content": content,
+            },
+        }
+    )
+
+
+def _expect_event_type(event: StreamEvent, event_type: type[TEvent]) -> TEvent:
+    assert isinstance(event, event_type)
+    return cast(TEvent, event)
+
+
+def _expect_reasoning_block(block: TextBlock | ReasoningBlock) -> ReasoningBlock:
+    assert isinstance(block, ReasoningBlock)
+    return block
+
+
+def _expect_text_block(block: TextBlock | ReasoningBlock) -> TextBlock:
+    assert isinstance(block, TextBlock)
+    return block
+
+
+def _collect_events(client: FakeOpenAIClient) -> list[StreamEvent]:
+    async def _collect() -> list[StreamEvent]:
+        event_stream = await stream(
+            prompt="hello",
+            model="gpt-5.4",
+            reasoning={"effort": "medium"},
+            client=cast(AsyncOpenAI, client),
+        )
+        return [event async for event in event_stream]
+
+    return asyncio.run(_collect())
+
+
+def test_stream_maps_raw_events_into_reasoning_and_text_events() -> None:
+    raw_events = [
+        _created_event(1, "resp_success"),
+        _reasoning_added_event(2, "rs_123", output_index=0),
+        _reasoning_summary_part_added_event(3, "rs_123", 0, output_index=0),
+        _reasoning_summary_delta_event(
+            4,
+            "rs_123",
+            0,
+            "Exploring reasoning traces",
+            output_index=0,
+        ),
+        _reasoning_summary_part_done_event(
+            5,
+            "rs_123",
+            0,
+            "Exploring reasoning traces",
+            output_index=0,
+        ),
+        _reasoning_summary_part_added_event(6, "rs_123", 1, output_index=0),
+        _reasoning_summary_delta_event(
+            7,
+            "rs_123",
+            1,
+            "Formulating reasoning traces",
+            output_index=0,
+        ),
+        _reasoning_done_event(
+            8,
+            "rs_123",
+            [
+                "Exploring reasoning traces",
+                "Formulating reasoning traces",
+            ],
+            output_index=0,
+        ),
+        _message_added_event(9, "msg_123", output_index=1),
+        _content_part_added_event(
+            10,
+            "msg_123",
+            "output_text",
+            output_index=1,
+            content_index=0,
+        ),
+        _text_delta_event(
+            11,
+            "msg_123",
+            "Hello",
+            output_index=1,
+            content_index=0,
+        ),
+        _message_done_event(
+            12,
+            "msg_123",
+            [
+                {
+                    "type": "output_text",
+                    "text": "Hello world",
+                    "annotations": [],
+                }
+            ],
+            output_index=1,
+        ),
+        _completed_event(13, "resp_success"),
+    ]
+
+    client = _build_client(raw_events)
+    events = _collect_events(client)
+    start = _expect_event_type(events[0], StreamStartEvent)
+    reasoning_start = _expect_event_type(events[1], ReasoningStartEvent)
+    reasoning_delta_one = _expect_event_type(events[2], ReasoningDeltaEvent)
+    reasoning_delta_separator = _expect_event_type(events[3], ReasoningDeltaEvent)
+    reasoning_delta_two = _expect_event_type(events[4], ReasoningDeltaEvent)
+    reasoning_end = _expect_event_type(events[5], ReasoningEndEvent)
+    text_start = _expect_event_type(events[6], TextStartEvent)
+    text_delta = _expect_event_type(events[7], TextDeltaEvent)
+    text_end = _expect_event_type(events[8], TextEndEvent)
+    done = _expect_event_type(events[9], StreamDoneEvent)
+    reasoning_start_block = _expect_reasoning_block(reasoning_start.partial.content[0])
+    reasoning_end_block = _expect_reasoning_block(reasoning_end.partial.content[0])
+    text_start_block = _expect_text_block(text_start.partial.content[1])
+    text_delta_block = _expect_text_block(text_delta.partial.content[1])
+    text_end_block = _expect_text_block(text_end.partial.content[1])
+    done_reasoning_block = _expect_reasoning_block(done.message.content[0])
+    done_text_block = _expect_text_block(done.message.content[1])
+
+    assert [event.type for event in events] == [
+        "start",
+        "reasoning_start",
+        "reasoning_delta",
+        "reasoning_delta",
+        "reasoning_delta",
+        "reasoning_end",
+        "text_start",
+        "text_delta",
+        "text_end",
+        "done",
+    ]
+    assert start.partial.response_id == "resp_success"
+    assert reasoning_start.partial.response_id == "resp_success"
+    assert reasoning_start_block.reasoning == (
+        "Exploring reasoning traces\n\nFormulating reasoning traces"
+    )
+    assert reasoning_delta_one.delta == "Exploring reasoning traces"
+    assert reasoning_delta_separator.delta == "\n\n"
+    assert reasoning_delta_two.delta == "Formulating reasoning traces"
+    assert (
+        reasoning_end_block.reasoning
+        == "Exploring reasoning traces\n\nFormulating reasoning traces"
+    )
+    assert text_start_block.text == "Hello world"
+    assert text_delta.delta == "Hello"
+    assert text_delta_block.text == "Hello world"
+    assert text_end_block.text == "Hello world"
+    assert done.message.response_id == "resp_success"
+    assert (
+        done_reasoning_block.reasoning
+        == "Exploring reasoning traces\n\nFormulating reasoning traces"
+    )
+    assert done_text_block.text == "Hello world"
+    client.responses.create.assert_awaited_once_with(
+        model="gpt-5.4",
+        input="hello",
+        stream=True,
+        reasoning={"effort": "medium"},
+    )
+
+
+def test_stream_maps_refusal_deltas_into_text_events() -> None:
+    raw_events = [
+        _created_event(1, "resp_refusal"),
+        _message_added_event(2, "msg_refusal", output_index=0),
+        _content_part_added_event(
+            3,
+            "msg_refusal",
+            "refusal",
+            output_index=0,
+            content_index=0,
+        ),
+        _refusal_delta_event(
+            4,
+            "msg_refusal",
+            "No",
+            output_index=0,
+            content_index=0,
+        ),
+        _message_done_event(
+            5,
+            "msg_refusal",
+            [{"type": "refusal", "refusal": "No thanks"}],
+            output_index=0,
+        ),
+        _completed_event(6, "resp_refusal"),
+    ]
+
+    client = _build_client(raw_events)
+    events = _collect_events(client)
+    text_delta = _expect_event_type(events[2], TextDeltaEvent)
+    text_end = _expect_event_type(events[3], TextEndEvent)
+    done = _expect_event_type(events[4], StreamDoneEvent)
+    text_delta_block = _expect_text_block(text_delta.partial.content[0])
+    text_end_block = _expect_text_block(text_end.partial.content[0])
+    done_text_block = _expect_text_block(done.message.content[0])
+
+    assert [event.type for event in events] == [
+        "start",
+        "text_start",
+        "text_delta",
+        "text_end",
+        "done",
+    ]
+    assert text_delta.delta == "No"
+    assert text_delta_block.text == "No thanks"
+    assert text_end_block.text == "No thanks"
+    assert done_text_block.text == "No thanks"
+
+
+def test_stream_maps_failed_response_into_error_event() -> None:
+    raw_events = [
+        _created_event(1, "resp_failed"),
+        _failed_event(2, "resp_failed", "Model overloaded"),
+    ]
+
+    client = _build_client(raw_events)
+    events = _collect_events(client)
+    error = _expect_event_type(events[1], StreamErrorEvent)
+
+    assert [event.type for event in events] == ["start", "error"]
+    assert error.message == "Model overloaded"
+    assert error.partial is not None
+    assert error.partial.response_id == "resp_failed"

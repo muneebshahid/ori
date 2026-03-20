@@ -2,12 +2,20 @@ from dataclasses import dataclass, field
 from collections.abc import Awaitable
 from typing import Callable
 
-from openai.types.responses.response_created_event import ResponseCreatedEvent
-from openai.types.responses.response_in_progress_event import ResponseInProgressEvent
-from openai.types.responses.response_output_item_added_event import (
-    ResponseOutputItemAddedEvent,
-)
 from ai.contracts import AsyncEventStream, Reasoning
+from ai.types import (
+    AssistantMessage,
+    ReasoningDeltaEvent,
+    ReasoningEndEvent,
+    ReasoningStartEvent,
+    StreamDoneEvent,
+    StreamErrorEvent,
+    StreamEvent,
+    StreamStartEvent,
+    TextDeltaEvent,
+    TextEndEvent,
+    TextStartEvent,
+)
 
 
 @dataclass
@@ -15,6 +23,8 @@ class AgentState:
     model: str
     reasoning: Reasoning | None = None
     messages: list[object] = field(default_factory=list)
+    stream_message: AssistantMessage | None = None
+    is_streaming: bool = False
 
 
 StreamFn = Callable[[str, str, Reasoning | None], Awaitable[AsyncEventStream]]
@@ -52,33 +62,63 @@ class Agent:
         self._state.messages.append(message)
 
     async def run(self, prompt: str) -> None:
+        self._state.is_streaming = True
+        self._state.stream_message = None
         stream = await self._stream_fn(prompt, self._state.model, self._state.reasoning)
 
         async for event in stream:
-            await _dispatch_event(event)
+            await _dispatch_event(self._state, event)
 
 
-async def _dispatch_event(event: object) -> None:
+async def _dispatch_event(state: AgentState, event: StreamEvent) -> None:
     match event:
-        case ResponseCreatedEvent():
-            await handle_response_created_event(event)
-        case ResponseInProgressEvent():
-            await handle_response_in_progress_event(event)
-        case ResponseOutputItemAddedEvent():
-            await handle_response_output_item_added_event(event)
+        case StreamStartEvent():
+            await handle_stream_start_event(state, event)
+        case ReasoningStartEvent() | ReasoningDeltaEvent() | ReasoningEndEvent():
+            await handle_reasoning_event(state, event)
+        case TextStartEvent() | TextDeltaEvent() | TextEndEvent():
+            await handle_text_event(state, event)
+        case StreamDoneEvent():
+            await handle_stream_done_event(state, event)
+        case StreamErrorEvent():
+            await handle_stream_error_event(state, event)
         case _:
             return None
 
 
-async def handle_response_created_event(event: ResponseCreatedEvent) -> None:
-    del event
-
-
-async def handle_response_in_progress_event(event: ResponseInProgressEvent) -> None:
-    del event
-
-
-async def handle_response_output_item_added_event(
-    event: ResponseOutputItemAddedEvent,
+async def handle_stream_start_event(
+    state: AgentState,
+    event: StreamStartEvent,
 ) -> None:
-    del event
+    state.stream_message = event.partial
+
+
+async def handle_reasoning_event(
+    state: AgentState,
+    event: ReasoningStartEvent | ReasoningDeltaEvent | ReasoningEndEvent,
+) -> None:
+    state.stream_message = event.partial
+
+
+async def handle_text_event(
+    state: AgentState,
+    event: TextStartEvent | TextDeltaEvent | TextEndEvent,
+) -> None:
+    state.stream_message = event.partial
+
+
+async def handle_stream_done_event(
+    state: AgentState,
+    event: StreamDoneEvent,
+) -> None:
+    state.messages.append(event.message)
+    state.stream_message = None
+    state.is_streaming = False
+
+
+async def handle_stream_error_event(
+    state: AgentState,
+    event: StreamErrorEvent,
+) -> None:
+    state.stream_message = event.partial
+    state.is_streaming = False

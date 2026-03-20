@@ -1,12 +1,19 @@
-from unittest.mock import AsyncMock, patch
 from collections.abc import AsyncIterator
 
 from agent.agent import Agent
 from ai.contracts import Reasoning
-from openai.types.responses.response_created_event import ResponseCreatedEvent
-from openai.types.responses.response_in_progress_event import ResponseInProgressEvent
-from openai.types.responses.response_output_item_added_event import (
-    ResponseOutputItemAddedEvent,
+from ai.types import (
+    AssistantMessage,
+    ReasoningBlock,
+    ReasoningDeltaEvent,
+    ReasoningEndEvent,
+    ReasoningStartEvent,
+    StreamDoneEvent,
+    StreamStartEvent,
+    TextBlock,
+    TextDeltaEvent,
+    TextEndEvent,
+    TextStartEvent,
 )
 
 
@@ -35,82 +42,51 @@ class FakeResponsesClient:
         return FakeResponseStream(self._events)
 
 
-def test_agent_run_dispatches_supported_events() -> None:
-    created_event = ResponseCreatedEvent.model_validate(
-        {
-            "type": "response.created",
-            "sequence_number": 1,
-            "response": {
-                "id": "resp_123",
-                "created_at": 0.0,
-                "model": "gpt-5.4",
-                "object": "response",
-                "output": [],
-                "parallel_tool_calls": False,
-                "tool_choice": "auto",
-                "tools": [],
-                "status": "in_progress",
-            },
-        }
-    )
-    in_progress_event = ResponseInProgressEvent.model_validate(
-        {
-            "type": "response.in_progress",
-            "sequence_number": 2,
-            "response": {
-                "id": "resp_123",
-                "created_at": 0.0,
-                "model": "gpt-5.4",
-                "object": "response",
-                "output": [],
-                "parallel_tool_calls": False,
-                "tool_choice": "auto",
-                "tools": [],
-                "status": "in_progress",
-            },
-        }
-    )
-    output_item_added_event = ResponseOutputItemAddedEvent.model_validate(
-        {
-            "type": "response.output_item.added",
-            "sequence_number": 3,
-            "output_index": 0,
-            "item": {
-                "id": "msg_123",
-                "type": "message",
-                "status": "in_progress",
-                "role": "assistant",
-                "content": [],
-            },
-        }
+def test_agent_run_tracks_streaming_message_and_final_message() -> None:
+    partial = AssistantMessage(response_id="resp_123")
+    final_message = AssistantMessage(
+        response_id="resp_123",
+        content=[
+            ReasoningBlock(
+                type="reasoning",
+                reasoning="first think",
+                reasoning_id="rs_123",
+            ),
+            TextBlock(
+                type="text",
+                text="final answer",
+            ),
+        ],
     )
     stream_fn = FakeResponsesClient(
-        [created_event, in_progress_event, output_item_added_event]
+        [
+            StreamStartEvent(type="start", partial=partial),
+            ReasoningStartEvent(type="reasoning_start", partial=partial),
+            ReasoningDeltaEvent(
+                type="reasoning_delta",
+                delta="first think",
+                partial=partial,
+            ),
+            ReasoningEndEvent(type="reasoning_end", partial=partial),
+            TextStartEvent(type="text_start", partial=partial),
+            TextDeltaEvent(
+                type="text_delta",
+                delta="final answer",
+                partial=partial,
+            ),
+            TextEndEvent(type="text_end", partial=partial),
+            StreamDoneEvent(type="done", message=final_message),
+        ]
     ).create
     agent = Agent(
         stream_fn=stream_fn,
         model="gpt-5.4",
         reasoning={"effort": "medium"},
     )
+    import asyncio
 
-    with (
-        patch(
-            "agent.agent.handle_response_created_event",
-            new_callable=AsyncMock,
-        ) as handle_created,
-        patch(
-            "agent.agent.handle_response_in_progress_event",
-            new_callable=AsyncMock,
-        ) as handle_in_progress,
-        patch(
-            "agent.agent.handle_response_output_item_added_event",
-            new_callable=AsyncMock,
-        ) as handle_output_item_added,
-    ):
-        import asyncio
+    asyncio.run(agent.run("hello"))
 
-        asyncio.run(agent.run("hello"))
-
-    handle_created.assert_awaited_once_with(created_event)
-    handle_in_progress.assert_awaited_once_with(in_progress_event)
-    handle_output_item_added.assert_awaited_once_with(output_item_added_event)
+    assert agent.state.is_streaming is False
+    assert agent.state.stream_message is None
+    assert agent.state.messages == [final_message]
