@@ -61,9 +61,9 @@ class StreamAssemblyState:
 async def stream(
     history: Sequence[ConversationItem],
     model: str,
-    reasoning: AppReasoning | None = None,
     *,
     instructions: str,
+    reasoning: AppReasoning | None = None,
     client: AsyncOpenAI | None = None,
 ) -> AsyncEventStream:
     """Stream internal assistant events from the OpenAI Responses API."""

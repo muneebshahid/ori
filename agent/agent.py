@@ -32,9 +32,9 @@ class StreamFn(Protocol):
         self,
         history: Sequence[ConversationItem],
         model: str,
-        reasoning: Reasoning | None,
         *,
         instructions: str,
+        reasoning: Reasoning | None,
     ) -> Awaitable[AsyncEventStream]: ...
 
 
@@ -78,8 +78,8 @@ class Agent:
         stream = await self._stream_fn(
             self._history,
             self._model,
-            self._reasoning,
             instructions=self._system_prompt,
+            reasoning=self._reasoning,
         )
 
         async for event in stream:

@@ -43,9 +43,9 @@ class FakeResponsesClient:
         self,
         history: Sequence[ConversationItem],
         model: str,
-        reasoning: Reasoning | None,
         *,
         instructions: str,
+        reasoning: Reasoning | None,
     ) -> FakeResponseStream:
         assert model == "gpt-5.4"
         assert history == [UserMessage(content="hello")]
