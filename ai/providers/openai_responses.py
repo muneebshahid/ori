@@ -26,7 +26,7 @@ from openai.types.responses.response_reasoning_item import (
     ResponseReasoningItem,
 )
 
-from ai.openai_client import create_openai_client
+from ai.clients.openai import create_openai_client
 from ai.contracts import AsyncEventStream, Reasoning as AppReasoning
 from ai.types import (
     AssistantMessage,
