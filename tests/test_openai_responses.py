@@ -18,7 +18,7 @@ from ai.types import (
     TextEndEvent,
     TextStartEvent,
 )
-from ai.providers.openai import stream
+from ai.openai.provider import stream
 from openai import AsyncOpenAI
 from openai.types.responses.response_completed_event import ResponseCompletedEvent
 from openai.types.responses.response_content_part_added_event import (

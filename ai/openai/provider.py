@@ -26,8 +26,8 @@ from openai.types.responses.response_reasoning_item import (
     ResponseReasoningItem,
 )
 
-from ai.clients.openai import create_openai_client
 from ai.contracts import AsyncEventStream, Reasoning as AppReasoning
+from ai.openai.client import create_openai_client
 from ai.types import (
     AssistantMessage,
     ReasoningBlock,
@@ -94,66 +94,45 @@ def _adapt_raw_event(
     event: object,
 ) -> Iterator[StreamEvent]:
     match event:
-        # Start of a new response
         case ResponseCreatedEvent():
             state.partial.response_id = event.response.id
-
-        # Reasoning block started
         case ResponseOutputItemAddedEvent() if isinstance(
             event.item, ResponseReasoningItem
         ):
             yield _start_reasoning_block(state, event.item)
-
-        # Text block started
         case ResponseOutputItemAddedEvent() if isinstance(
             event.item, ResponseOutputMessage
         ):
             yield _start_text_block(state)
-
-        # Reasoning summary text delta
         case ResponseReasoningSummaryTextDeltaEvent() if (
             state.current_reasoning_block is not None
         ):
             yield _append_reasoning_delta(state, event.delta)
-
-        # Separate summary parts with a blank line while streaming
         case ResponseReasoningSummaryPartDoneEvent() if (
             state.current_reasoning_block is not None
         ):
             yield _append_reasoning_delta(state, "\n\n")
-
-        # Track the active visible content part for message output
         case ResponseContentPartAddedEvent() if state.current_text_block is not None:
             _update_text_content_part(state, event)
-
-        # Text and refusal deltas are surfaced through the same text block stream
         case ResponseTextDeltaEvent() | ResponseRefusalDeltaEvent() if (
             state.current_text_block is not None
             and state.current_text_content_part in {"output_text", "refusal"}
         ):
             yield _append_text_delta(state, event.delta)
-
-        # Reasoning block finalized with the canonical item shape
         case ResponseOutputItemDoneEvent() if (
             isinstance(event.item, ResponseReasoningItem)
             and state.current_reasoning_block is not None
         ):
             yield _finalize_reasoning_block(state, event.item)
-
-        # Message block finalized with the canonical item shape
         case ResponseOutputItemDoneEvent() if (
             isinstance(event.item, ResponseOutputMessage)
             and state.current_text_block is not None
         ):
             yield _finalize_text_block(state, event.item)
-
-        # Response completed successfully
         case ResponseCompletedEvent():
             yield StreamDoneEvent(
                 type="done", message=state.partial.model_copy(deep=True)
             )
-
-        # Response failed
         case ResponseFailedEvent():
             yield StreamErrorEvent(
                 type="error",
@@ -259,7 +238,7 @@ def _join_reasoning_summary_text(
 
 
 def _join_message_text(content: Sequence[ResponseMessageContent]) -> str:
-    parts = []
+    parts: list[str] = []
     for item in content:
         if isinstance(item, ResponseOutputText):
             parts.append(item.text)

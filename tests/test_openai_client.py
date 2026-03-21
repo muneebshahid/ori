@@ -2,15 +2,13 @@ from unittest.mock import patch
 
 import pytest
 
-from ai.clients.openai import create_openai_client
+from ai.openai.client import create_openai_client
 
 
 def test_raises_when_api_key_is_missing() -> None:
     with (
-        patch("ai.clients.openai.settings.openai_api_key", None),
-        patch(
-            "ai.clients.openai.settings.openai_base_url", "https://api.openai.com/v1"
-        ),
+        patch("ai.openai.client.settings.openai_api_key", None),
+        patch("ai.openai.client.settings.openai_base_url", "https://api.openai.com/v1"),
     ):
         with pytest.raises(
             ValueError,
@@ -21,8 +19,8 @@ def test_raises_when_api_key_is_missing() -> None:
 
 def test_raises_when_base_url_is_missing() -> None:
     with (
-        patch("ai.clients.openai.settings.openai_api_key", "test-key"),
-        patch("ai.clients.openai.settings.openai_base_url", None),
+        patch("ai.openai.client.settings.openai_api_key", "test-key"),
+        patch("ai.openai.client.settings.openai_base_url", None),
     ):
         with pytest.raises(
             ValueError,
@@ -33,10 +31,8 @@ def test_raises_when_base_url_is_missing() -> None:
 
 def test_returns_async_client_when_config_is_present() -> None:
     with (
-        patch("ai.clients.openai.settings.openai_api_key", "test-key"),
-        patch(
-            "ai.clients.openai.settings.openai_base_url", "https://api.openai.com/v1"
-        ),
+        patch("ai.openai.client.settings.openai_api_key", "test-key"),
+        patch("ai.openai.client.settings.openai_base_url", "https://api.openai.com/v1"),
     ):
         client = create_openai_client()
 
