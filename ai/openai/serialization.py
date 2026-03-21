@@ -28,7 +28,7 @@ def serialize_response_input(
     system_prompt: str | None = None,
     system_role: Literal["system", "developer"] = "system",
 ) -> ResponseInputParam:
-    """Serialize a conversation thread into OpenAI Responses input items."""
+    """Serialize conversation history into OpenAI Responses input items."""
 
     items: ResponseInputParam = []
     if system_prompt:

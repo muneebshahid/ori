@@ -4,6 +4,9 @@ from dataclasses import dataclass
 from typing import TypeAlias, TypeVar, cast
 from unittest.mock import AsyncMock
 
+from ai.conversation import UserMessage
+from ai.openai.provider import stream
+from ai.openai.serialization import serialize_history_items
 from ai.types import (
     ReasoningBlock,
     ReasoningDeltaEvent,
@@ -18,7 +21,6 @@ from ai.types import (
     TextEndEvent,
     TextStartEvent,
 )
-from ai.openai.provider import stream
 from openai import AsyncOpenAI
 from openai.types.responses.response_completed_event import ResponseCompletedEvent
 from openai.types.responses.response_content_part_added_event import (
@@ -392,9 +394,10 @@ def _expect_text_block(block: TextBlock | ReasoningBlock) -> TextBlock:
 def _collect_events(client: FakeOpenAIClient) -> list[StreamEvent]:
     async def _collect() -> list[StreamEvent]:
         event_stream = await stream(
-            prompt="hello",
+            history=[UserMessage(content="hello")],
             model="gpt-5.4",
             reasoning={"effort": "medium"},
+            instructions="Follow the repo conventions.",
             client=cast(AsyncOpenAI, client),
         )
         return [event async for event in event_stream]
@@ -529,7 +532,8 @@ def test_stream_maps_raw_events_with_shared_partial_state() -> None:
     assert done_text_block.text == "Hello world"
     client.responses.create.assert_awaited_once_with(
         model="gpt-5.4",
-        input="hello",
+        input=serialize_history_items([UserMessage(content="hello")]),
+        instructions="Follow the repo conventions.",
         stream=True,
         reasoning={"effort": "medium"},
     )

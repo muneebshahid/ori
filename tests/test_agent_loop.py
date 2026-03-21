@@ -1,7 +1,14 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 
-from agent.agent import Agent, StreamFn
+from agent.agent import Agent, AgentRunError, StreamFn
 from ai.contracts import Reasoning
+from ai.conversation import (
+    AssistantReasoningBlock,
+    AssistantTextBlock,
+    AssistantTurn,
+    ConversationItem,
+    UserMessage,
+)
 from ai.types import (
     AssistantMessage,
     ReasoningBlock,
@@ -9,6 +16,7 @@ from ai.types import (
     ReasoningEndEvent,
     ReasoningStartEvent,
     StreamDoneEvent,
+    StreamErrorEvent,
     StreamEvent,
     StreamStartEvent,
     TextBlock,
@@ -33,13 +41,16 @@ class FakeResponsesClient:
 
     async def create(
         self,
-        prompt: str,
+        history: Sequence[ConversationItem],
         model: str,
         reasoning: Reasoning | None,
+        *,
+        instructions: str,
     ) -> FakeResponseStream:
         assert model == "gpt-5.4"
-        assert prompt == "hello"
+        assert history == [UserMessage(content="hello")]
         assert reasoning == {"effort": "medium"}
+        assert instructions
         return FakeResponseStream(self._events)
 
 
@@ -89,6 +100,45 @@ def test_agent_run_tracks_streaming_message_and_final_message() -> None:
 
     asyncio.run(agent.run("hello"))
 
-    assert agent.state.is_streaming is False
-    assert agent.state.stream_message is None
-    assert agent.state.messages == [final_message]
+    assert agent.history == (
+        UserMessage(content="hello"),
+        AssistantTurn(
+            response_id="resp_123",
+            content=[
+                AssistantReasoningBlock(
+                    summary_text="first think",
+                    reasoning_id="rs_123",
+                ),
+                AssistantTextBlock(text="final answer"),
+            ],
+        ),
+    )
+
+
+def test_agent_run_raises_when_stream_emits_error() -> None:
+    client = FakeResponsesClient(
+        [
+            StreamStartEvent(type="start", partial=AssistantMessage()),
+            StreamErrorEvent(
+                type="error",
+                message="Model overloaded",
+                partial=AssistantMessage(),
+            ),
+        ]
+    )
+    stream_fn: StreamFn = client.create
+    agent = Agent(
+        stream_fn=stream_fn,
+        model="gpt-5.4",
+        reasoning={"effort": "medium"},
+    )
+    import asyncio
+
+    try:
+        asyncio.run(agent.run("hello"))
+    except AgentRunError as error:
+        assert str(error) == "Model overloaded"
+    else:
+        raise AssertionError("Expected Agent.run() to raise on stream error.")
+
+    assert agent.history == (UserMessage(content="hello"),)

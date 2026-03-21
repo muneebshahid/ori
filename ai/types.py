@@ -8,6 +8,8 @@ class TextBlock(BaseModel):
 
     type: Literal["text"]
     text: str
+    message_id: str | None = None
+    phase: Literal["commentary", "final_answer"] | None = None
 
 
 class ReasoningBlock(BaseModel):

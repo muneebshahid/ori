@@ -28,6 +28,8 @@ from openai.types.responses.response_reasoning_item import (
 
 from ai.contracts import AsyncEventStream, Reasoning as AppReasoning
 from ai.openai.client import create_client
+from ai.openai.serialization import serialize_history_items
+from ai.conversation import ConversationItem
 from ai.types import (
     AssistantMessage,
     ReasoningBlock,
@@ -57,20 +59,23 @@ class StreamAssemblyState:
 
 
 async def stream(
-    prompt: str,
+    history: Sequence[ConversationItem],
     model: str,
     reasoning: AppReasoning | None = None,
     *,
+    instructions: str,
     client: AsyncOpenAI | None = None,
 ) -> AsyncEventStream:
     """Stream internal assistant events from the OpenAI Responses API."""
 
     active_client = client or create_client()
+    serialized_history = serialize_history_items(history)
     raw_stream = await active_client.responses.create(
         model=model,
-        input=prompt,
-        stream=True,
+        input=serialized_history,
         reasoning=cast("OpenAIReasoning | None", reasoning),
+        instructions=instructions,
+        stream=True,
     )
     return _adapt_stream(raw_stream)
 
@@ -103,7 +108,7 @@ def _adapt_raw_event(
         case ResponseOutputItemAddedEvent() if isinstance(
             event.item, ResponseOutputMessage
         ):
-            yield _start_text_block(state)
+            yield _start_text_block(state, event.item)
         case ResponseReasoningSummaryTextDeltaEvent() if (
             state.current_reasoning_block is not None
         ):
@@ -156,8 +161,16 @@ def _start_reasoning_block(
     return ReasoningStartEvent(type="reasoning_start", partial=state.partial)
 
 
-def _start_text_block(state: StreamAssemblyState) -> TextStartEvent:
-    state.current_text_block = TextBlock(type="text", text="")
+def _start_text_block(
+    state: StreamAssemblyState,
+    item: ResponseOutputMessage,
+) -> TextStartEvent:
+    state.current_text_block = TextBlock(
+        type="text",
+        text="",
+        message_id=item.id,
+        phase=_extract_message_phase(item),
+    )
     state.current_reasoning_block = None
     state.current_text_content_part = None
     state.partial.content.append(state.current_text_block)
@@ -214,6 +227,8 @@ def _finalize_text_block(
 ) -> TextEndEvent:
     assert state.current_text_block is not None
     state.current_text_block.text = _join_message_text(item.content)
+    state.current_text_block.message_id = item.id
+    state.current_text_block.phase = _extract_message_phase(item)
     state.current_text_block = None
     state.current_text_content_part = None
     return TextEndEvent(type="text_end", partial=state.partial)
@@ -245,3 +260,12 @@ def _join_message_text(content: Sequence[ResponseMessageContent]) -> str:
         elif isinstance(item, ResponseOutputRefusal):
             parts.append(item.refusal)
     return "".join(parts)
+
+
+def _extract_message_phase(
+    item: ResponseOutputMessage,
+) -> Literal["commentary", "final_answer"] | None:
+    phase = getattr(item, "phase", None)
+    if phase in {"commentary", "final_answer"}:
+        return phase
+    return None
