@@ -3,7 +3,7 @@ from openai import AsyncOpenAI
 from settings import settings
 
 
-def create_openai_client() -> AsyncOpenAI:
+def create_client() -> AsyncOpenAI:
     _validate_settings()
     return AsyncOpenAI(
         api_key=settings.openai_api_key,

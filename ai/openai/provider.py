@@ -27,7 +27,7 @@ from openai.types.responses.response_reasoning_item import (
 )
 
 from ai.contracts import AsyncEventStream, Reasoning as AppReasoning
-from ai.openai.client import create_openai_client
+from ai.openai.client import create_client
 from ai.types import (
     AssistantMessage,
     ReasoningBlock,
@@ -65,7 +65,7 @@ async def stream(
 ) -> AsyncEventStream:
     """Stream internal assistant events from the OpenAI Responses API."""
 
-    active_client = client or create_openai_client()
+    active_client = client or create_client()
     raw_stream = await active_client.responses.create(
         model=model,
         input=prompt,
