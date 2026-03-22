@@ -527,7 +527,7 @@ def test_stream_maps_raw_events_with_shared_partial_state() -> None:
     assert text_delta.delta == "Hello"
     assert final_text_block.text == "Hello world"
     assert done.message.response_id == "resp_success"
-    assert done.message is not shared_partial
+    assert done.message is shared_partial
     assert (
         done_reasoning_block.summary_text
         == "Exploring reasoning traces\n\nFormulating reasoning traces"
@@ -591,7 +591,7 @@ def test_stream_maps_refusal_deltas_with_shared_partial_state() -> None:
     assert text_end.partial is shared_partial
     assert text_delta.delta == "No"
     assert text_block.text == "No thanks"
-    assert done.message is not shared_partial
+    assert done.message is shared_partial
     assert done_text_block.text == "No thanks"
 
 

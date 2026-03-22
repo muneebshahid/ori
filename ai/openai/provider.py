@@ -136,14 +136,12 @@ def _adapt_raw_event(
         ):
             yield _finalize_text_block(state, event.item)
         case ResponseCompletedEvent():
-            yield StreamDoneEvent(
-                type="done", message=state.partial.model_copy(deep=True)
-            )
+            yield StreamDoneEvent(type="done", message=state.partial)
         case ResponseFailedEvent():
             yield StreamErrorEvent(
                 type="error",
                 message=_extract_error_message(event),
-                partial=state.partial.model_copy(deep=True),
+                partial=state.partial,
             )
 
 
