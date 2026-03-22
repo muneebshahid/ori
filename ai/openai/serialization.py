@@ -52,8 +52,6 @@ def serialize_history_items(
                     )
                 )
                 assistant_turn_index += 1
-            case AssistantTurn():
-                continue
 
     return items
 
