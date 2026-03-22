@@ -2,6 +2,8 @@ from typing import Literal, TypeAlias
 
 from pydantic import BaseModel, Field
 
+Phase: TypeAlias = Literal["commentary", "final_answer"]
+
 
 class UserMessage(BaseModel):
     """A user-authored conversation turn."""
@@ -16,7 +18,7 @@ class AssistantTextBlock(BaseModel):
     type: Literal["text"] = "text"
     text: str
     message_id: str | None = None
-    phase: Literal["commentary", "final_answer"] | None = None
+    phase: Phase | None = None
 
 
 class AssistantReasoningBlock(BaseModel):

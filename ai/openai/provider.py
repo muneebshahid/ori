@@ -29,7 +29,7 @@ from openai.types.responses.response_reasoning_item import (
 from ai.contracts import AsyncEventStream, Reasoning as AppReasoning
 from ai.openai.client import create_client
 from ai.openai.serialization import serialize_history_items
-from ai.conversation import ConversationItem
+from ai.conversation import ConversationItem, Phase
 from ai.types import (
     AssistantMessage,
     ReasoningBlock,
@@ -264,7 +264,7 @@ def _join_message_text(content: Sequence[ResponseMessageContent]) -> str:
 
 def _extract_message_phase(
     item: ResponseOutputMessage,
-) -> Literal["commentary", "final_answer"] | None:
+) -> Phase | None:
     phase = getattr(item, "phase", None)
     if phase in {"commentary", "final_answer"}:
         return phase

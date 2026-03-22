@@ -65,7 +65,7 @@ class Agent:
 
     @property
     def history(self) -> Sequence[ConversationItem]:
-        return tuple(item.model_copy(deep=True) for item in self._history)
+        return tuple(self._history)
 
     def replace_history(self, history: Sequence[ConversationItem]) -> None:
         self._history = list(history)
