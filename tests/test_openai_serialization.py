@@ -1,11 +1,7 @@
 from pydantic import TypeAdapter
 
-from ai.conversation import (
-    AssistantReasoningBlock,
-    AssistantTextBlock,
-    AssistantTurn,
-    UserMessage,
-)
+from ai.types.conversation import AssistantTurn, UserMessage
+from ai.types.stream import ReasoningBlock, TextBlock
 from ai.openai.serialization import (
     serialize_history_items,
     serialize_response_input,
@@ -19,12 +15,12 @@ def test_serialize_response_input_flattens_sample_thread() -> None:
         AssistantTurn(
             response_id="resp_123",
             content=[
-                AssistantReasoningBlock(
+                ReasoningBlock(
                     summary_text="Draft a short seasonal poem.",
                     reasoning_id="rs_123",
                     encrypted_content="enc_123",
                 ),
-                AssistantTextBlock(
+                TextBlock(
                     text="Soft rain on pine leaves\nSilver threads stitch dusk to earth\nNight drinks every sound",
                     message_id="msg_123",
                     phase="final_answer",
@@ -34,7 +30,7 @@ def test_serialize_response_input_flattens_sample_thread() -> None:
         AssistantTurn(
             status="aborted",
             content=[
-                AssistantReasoningBlock(
+                ReasoningBlock(
                     summary_text="This partial turn should be skipped.",
                     reasoning_id="rs_skip",
                 )
@@ -96,8 +92,8 @@ def test_serialize_history_items_skips_reasoning_without_replay_metadata() -> No
     history = [
         AssistantTurn(
             content=[
-                AssistantReasoningBlock(summary_text="Think first."),
-                AssistantTextBlock(text="Answer next."),
+                ReasoningBlock(summary_text="Think first."),
+                TextBlock(text="Answer next."),
             ]
         )
     ]
@@ -126,7 +122,7 @@ def test_serialize_history_items_generates_fallback_message_ids() -> None:
     history = [
         AssistantTurn(
             content=[
-                AssistantTextBlock(text="Answer next."),
+                TextBlock(text="Answer next."),
             ]
         )
     ]

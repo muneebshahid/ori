@@ -26,22 +26,23 @@ from openai.types.responses.response_reasoning_item import (
     ResponseReasoningItem,
 )
 
-from ai.contracts import AsyncEventStream, Reasoning as AppReasoning
+from ai.types.contracts import AsyncEventStream, Reasoning as AppReasoning
 from ai.openai.client import create_client
 from ai.openai.serialization import serialize_history_items
-from ai.conversation import ConversationItem, Phase
-from ai.types import (
+from ai.types.conversation import ConversationItem
+from ai.types.stream import (
     AssistantMessage,
-    ReasoningBlock,
+    Phase,
     ReasoningDeltaEvent,
+    ReasoningBlock,
     ReasoningEndEvent,
     ReasoningStartEvent,
     StreamDoneEvent,
     StreamErrorEvent,
     StreamEvent,
     StreamStartEvent,
-    TextBlock,
     TextDeltaEvent,
+    TextBlock,
     TextEndEvent,
     TextStartEvent,
 )
@@ -151,8 +152,7 @@ def _start_reasoning_block(
     item: ResponseReasoningItem,
 ) -> ReasoningStartEvent:
     state.current_reasoning_block = ReasoningBlock(
-        type="reasoning",
-        reasoning="",
+        summary_text="",
         reasoning_id=item.id,
     )
     state.current_text_block = None
@@ -166,7 +166,6 @@ def _start_text_block(
     item: ResponseOutputMessage,
 ) -> TextStartEvent:
     state.current_text_block = TextBlock(
-        type="text",
         text="",
         message_id=item.id,
         phase=_extract_message_phase(item),
@@ -182,7 +181,7 @@ def _append_reasoning_delta(
     delta: str,
 ) -> ReasoningDeltaEvent:
     assert state.current_reasoning_block is not None
-    state.current_reasoning_block.reasoning += delta
+    state.current_reasoning_block.summary_text += delta
     return ReasoningDeltaEvent(
         type="reasoning_delta", delta=delta, partial=state.partial
     )
@@ -216,7 +215,7 @@ def _finalize_reasoning_block(
 ) -> ReasoningEndEvent:
     assert state.current_reasoning_block is not None
     if summary_text := _join_reasoning_summary_text(item.summary):
-        state.current_reasoning_block.reasoning = summary_text
+        state.current_reasoning_block.summary_text = summary_text
     state.current_reasoning_block = None
     return ReasoningEndEvent(type="reasoning_end", partial=state.partial)
 

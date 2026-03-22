@@ -4,22 +4,23 @@ from dataclasses import dataclass
 from typing import TypeAlias, TypeVar, cast
 from unittest.mock import AsyncMock
 
-from ai.conversation import UserMessage
+from ai.types.conversation import UserMessage
 from ai.openai.provider import stream
 from ai.openai.serialization import serialize_history_items
-from ai.types import (
-    ReasoningBlock,
+from ai.types.stream import (
     ReasoningDeltaEvent,
+    ReasoningBlock,
     ReasoningEndEvent,
     ReasoningStartEvent,
     StreamDoneEvent,
     StreamErrorEvent,
     StreamEvent,
     StreamStartEvent,
-    TextBlock,
     TextDeltaEvent,
+    TextBlock,
     TextEndEvent,
     TextStartEvent,
+    ToolCallBlock,
 )
 from openai import AsyncOpenAI
 from openai.types.responses.response_completed_event import ResponseCompletedEvent
@@ -381,12 +382,16 @@ def _expect_event_type(event: StreamEvent, event_type: type[TEvent]) -> TEvent:
     return cast(TEvent, event)
 
 
-def _expect_reasoning_block(block: TextBlock | ReasoningBlock) -> ReasoningBlock:
+def _expect_reasoning_block(
+    block: TextBlock | ReasoningBlock | ToolCallBlock,
+) -> ReasoningBlock:
     assert isinstance(block, ReasoningBlock)
     return block
 
 
-def _expect_text_block(block: TextBlock | ReasoningBlock) -> TextBlock:
+def _expect_text_block(
+    block: TextBlock | ReasoningBlock | ToolCallBlock,
+) -> TextBlock:
     assert isinstance(block, TextBlock)
     return block
 
@@ -518,7 +523,7 @@ def test_stream_maps_raw_events_with_shared_partial_state() -> None:
     assert reasoning_delta_separator.delta == "\n\n"
     assert reasoning_delta_two.delta == "Formulating reasoning traces"
     assert (
-        final_reasoning_block.reasoning
+        final_reasoning_block.summary_text
         == "Exploring reasoning traces\n\nFormulating reasoning traces"
     )
     assert text_delta.delta == "Hello"
@@ -526,7 +531,7 @@ def test_stream_maps_raw_events_with_shared_partial_state() -> None:
     assert done.message.response_id == "resp_success"
     assert done.message is not shared_partial
     assert (
-        done_reasoning_block.reasoning
+        done_reasoning_block.summary_text
         == "Exploring reasoning traces\n\nFormulating reasoning traces"
     )
     assert done_text_block.text == "Hello world"

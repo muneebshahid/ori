@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator
 from typing import Literal, Protocol, TypedDict
 
-from ai.types import StreamEvent
+from ai.types.stream import StreamEvent
 
 
 class AsyncEventStream(Protocol):

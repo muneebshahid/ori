@@ -1,33 +1,52 @@
-from typing import Literal
+from typing import Literal, TypeAlias
 
 from pydantic import BaseModel, Field
 
-from ai.conversation import Phase
+from ai.types.tools import JsonObject
+
+Phase: TypeAlias = Literal["commentary", "final_answer"]
+StopReason: TypeAlias = Literal["stop", "length", "tool_use", "error", "aborted"]
 
 
 class TextBlock(BaseModel):
-    """A streamed assistant text block."""
+    """An assistant text block shared by streaming and replay history."""
 
-    type: Literal["text"]
+    type: Literal["text"] = "text"
     text: str
     message_id: str | None = None
     phase: Phase | None = None
 
 
 class ReasoningBlock(BaseModel):
-    """A streamed assistant reasoning block."""
+    """An assistant reasoning block shared by streaming and replay history."""
 
-    type: Literal["reasoning"]
-    reasoning: str
+    type: Literal["reasoning"] = "reasoning"
+    summary_text: str
     reasoning_id: str | None = None
+    encrypted_content: str | None = None
+
+
+class ToolCallBlock(BaseModel):
+    """An assistant tool call block shared by streaming and replay history."""
+
+    type: Literal["tool_call"] = "tool_call"
+    call_id: str
+    name: str
+    arguments: JsonObject = Field(default_factory=dict)
+    provider_item_id: str | None = None
+    namespace: str | None = None
+
+
+AssistantBlock: TypeAlias = TextBlock | ReasoningBlock | ToolCallBlock
 
 
 class AssistantMessage(BaseModel):
     """The partial or final assistant message assembled during streaming."""
 
     role: Literal["assistant"] = "assistant"
-    content: list[TextBlock | ReasoningBlock] = Field(default_factory=list)
+    content: list[AssistantBlock] = Field(default_factory=list)
     response_id: str | None = None
+    stop_reason: StopReason = "stop"
 
 
 class StreamStartEvent(BaseModel):
@@ -81,6 +100,28 @@ class TextEndEvent(BaseModel):
     partial: AssistantMessage
 
 
+class ToolCallStartEvent(BaseModel):
+    """Marks the start of a tool call block."""
+
+    type: Literal["tool_call_start"]
+    partial: AssistantMessage
+
+
+class ToolCallDeltaEvent(BaseModel):
+    """Carries incremental tool-call argument JSON for the current block."""
+
+    type: Literal["tool_call_delta"]
+    delta: str
+    partial: AssistantMessage
+
+
+class ToolCallEndEvent(BaseModel):
+    """Marks the end of the current tool call block."""
+
+    type: Literal["tool_call_end"]
+    partial: AssistantMessage
+
+
 class StreamDoneEvent(BaseModel):
     """Marks successful stream completion with the final assistant message."""
 
@@ -104,6 +145,9 @@ StreamEvent = (
     | TextStartEvent
     | TextDeltaEvent
     | TextEndEvent
+    | ToolCallStartEvent
+    | ToolCallDeltaEvent
+    | ToolCallEndEvent
     | StreamDoneEvent
     | StreamErrorEvent
 )

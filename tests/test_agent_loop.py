@@ -1,28 +1,23 @@
 from collections.abc import AsyncIterator, Sequence
 
 from agent.agent import Agent, AgentRunError, StreamFn
-from ai.contracts import Reasoning
-from ai.conversation import (
-    AssistantReasoningBlock,
-    AssistantTextBlock,
-    AssistantTurn,
-    ConversationItem,
-    UserMessage,
-)
-from ai.types import (
+from ai.types.contracts import Reasoning
+from ai.types.conversation import AssistantTurn, ConversationItem, UserMessage
+from ai.types.stream import (
     AssistantMessage,
-    ReasoningBlock,
     ReasoningDeltaEvent,
+    ReasoningBlock,
     ReasoningEndEvent,
     ReasoningStartEvent,
     StreamDoneEvent,
     StreamErrorEvent,
     StreamEvent,
     StreamStartEvent,
-    TextBlock,
     TextDeltaEvent,
+    TextBlock,
     TextEndEvent,
     TextStartEvent,
+    ToolCallBlock,
 )
 
 
@@ -60,14 +55,10 @@ def test_agent_run_tracks_streaming_message_and_final_message() -> None:
         response_id="resp_123",
         content=[
             ReasoningBlock(
-                type="reasoning",
-                reasoning="first think",
+                summary_text="first think",
                 reasoning_id="rs_123",
             ),
-            TextBlock(
-                type="text",
-                text="final answer",
-            ),
+            TextBlock(text="final answer"),
         ],
     )
     client = FakeResponsesClient(
@@ -105,11 +96,11 @@ def test_agent_run_tracks_streaming_message_and_final_message() -> None:
         AssistantTurn(
             response_id="resp_123",
             content=[
-                AssistantReasoningBlock(
+                ReasoningBlock(
                     summary_text="first think",
                     reasoning_id="rs_123",
                 ),
-                AssistantTextBlock(text="final answer"),
+                TextBlock(text="final answer"),
             ],
         ),
     )
@@ -142,3 +133,49 @@ def test_agent_run_raises_when_stream_emits_error() -> None:
         raise AssertionError("Expected Agent.run() to raise on stream error.")
 
     assert agent.history == (UserMessage(content="hello"),)
+
+
+def test_agent_run_preserves_tool_call_blocks_and_stop_reason() -> None:
+    final_message = AssistantMessage(
+        response_id="resp_123",
+        stop_reason="tool_use",
+        content=[
+            ToolCallBlock(
+                call_id="call_123",
+                name="ls",
+                arguments={"directory": "."},
+                provider_item_id="fc_123",
+            )
+        ],
+    )
+    client = FakeResponsesClient(
+        [
+            StreamStartEvent(type="start", partial=AssistantMessage()),
+            StreamDoneEvent(type="done", message=final_message),
+        ]
+    )
+    stream_fn: StreamFn = client.create
+    agent = Agent(
+        stream_fn=stream_fn,
+        model="gpt-5.4",
+        reasoning={"effort": "medium"},
+    )
+    import asyncio
+
+    asyncio.run(agent.run("hello"))
+
+    assert agent.history == (
+        UserMessage(content="hello"),
+        AssistantTurn(
+            response_id="resp_123",
+            stop_reason="tool_use",
+            content=[
+                ToolCallBlock(
+                    call_id="call_123",
+                    name="ls",
+                    arguments={"directory": "."},
+                    provider_item_id="fc_123",
+                )
+            ],
+        ),
+    )

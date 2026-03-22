@@ -1,25 +1,21 @@
 from collections.abc import Awaitable, Sequence
 from typing import Protocol
 
-from ai.contracts import AsyncEventStream, Reasoning
-from ai.conversation import (
-    AssistantReasoningBlock,
-    AssistantTextBlock,
+from ai.types.contracts import AsyncEventStream, Reasoning
+from ai.types.conversation import (
     AssistantTurn,
     ConversationItem,
     UserMessage,
 )
-from ai.types import (
+from ai.types.stream import (
     AssistantMessage,
     ReasoningDeltaEvent,
-    ReasoningBlock,
     ReasoningEndEvent,
     ReasoningStartEvent,
     StreamDoneEvent,
     StreamErrorEvent,
     StreamEvent,
     StreamStartEvent,
-    TextBlock,
     TextDeltaEvent,
     TextEndEvent,
     TextStartEvent,
@@ -120,23 +116,7 @@ class Agent:
 
 def _build_assistant_turn(message: AssistantMessage) -> AssistantTurn:
     return AssistantTurn(
-        content=[_build_assistant_block(block) for block in message.content],
+        content=[block.model_copy(deep=True) for block in message.content],
         response_id=message.response_id,
+        stop_reason=message.stop_reason,
     )
-
-
-def _build_assistant_block(
-    block: TextBlock | ReasoningBlock,
-) -> AssistantTextBlock | AssistantReasoningBlock:
-    match block:
-        case TextBlock():
-            return AssistantTextBlock(
-                text=block.text,
-                message_id=block.message_id,
-                phase=block.phase,
-            )
-        case ReasoningBlock():
-            return AssistantReasoningBlock(
-                summary_text=block.reasoning,
-                reasoning_id=block.reasoning_id,
-            )

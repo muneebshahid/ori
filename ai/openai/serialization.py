@@ -13,13 +13,8 @@ from openai.types.responses.response_reasoning_item_param import (
     Summary as ResponseReasoningSummaryParam,
 )
 
-from ai.conversation import (
-    AssistantReasoningBlock,
-    AssistantTextBlock,
-    AssistantTurn,
-    ConversationItem,
-    UserMessage,
-)
+from ai.types.conversation import AssistantTurn, ConversationItem, UserMessage
+from ai.types.stream import ReasoningBlock, TextBlock
 
 
 def serialize_response_input(
@@ -91,16 +86,14 @@ def _serialize_assistant_turn(
 
     for block_index, block in enumerate(turn.content):
         match block:
-            case AssistantReasoningBlock(reasoning_id=reasoning_id) if (
-                reasoning_id is not None
-            ):
+            case ReasoningBlock(reasoning_id=reasoning_id) if reasoning_id is not None:
                 items.append(
                     _serialize_assistant_reasoning_block(
                         block,
                         reasoning_id,
                     )
                 )
-            case AssistantTextBlock():
+            case TextBlock():
                 items.append(
                     _serialize_assistant_text_block(
                         block,
@@ -113,7 +106,7 @@ def _serialize_assistant_turn(
 
 
 def _serialize_assistant_reasoning_block(
-    block: AssistantReasoningBlock,
+    block: ReasoningBlock,
     reasoning_id: str,
 ) -> ResponseReasoningItemParam:
     summary: ResponseReasoningSummaryParam = {
@@ -131,7 +124,7 @@ def _serialize_assistant_reasoning_block(
 
 
 def _serialize_assistant_text_block(
-    block: AssistantTextBlock,
+    block: TextBlock,
     *,
     assistant_turn_index: int,
     block_index: int,
