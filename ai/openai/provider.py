@@ -25,6 +25,7 @@ from openai.types.responses.response_output_message import (
 )
 from openai.types.responses.response_output_refusal import ResponseOutputRefusal
 from openai.types.responses.response_output_text import ResponseOutputText
+from openai.types.responses.response_create_params import ResponseCreateParamsStreaming
 from openai.types.responses.response_reasoning_item import (
     Summary as ResponseReasoningSummary,
     ResponseReasoningItem,
@@ -32,7 +33,7 @@ from openai.types.responses.response_reasoning_item import (
 
 from ai.types.contracts import AsyncEventStream, Reasoning as AppReasoning
 from ai.openai.client import create_client
-from ai.openai.serialization import serialize_history_items
+from ai.openai.serialization import serialize_history_items, serialize_tools
 from ai.types.conversation import ConversationItem
 from ai.types.stream import (
     AssistantMessage,
@@ -54,7 +55,7 @@ from ai.types.stream import (
     ToolCallEndEvent,
     ToolCallStartEvent,
 )
-from ai.types.tools import JsonObject
+from ai.types.tools import JsonObject, ToolDefinition
 
 if TYPE_CHECKING:
     from openai.types.shared_params.reasoning import Reasoning as OpenAIReasoning
@@ -78,19 +79,24 @@ async def stream(
     *,
     instructions: str,
     reasoning: AppReasoning | None = None,
+    tools: Sequence[ToolDefinition] | None = None,
     client: AsyncOpenAI | None = None,
 ) -> AsyncEventStream:
     """Stream internal assistant events from the OpenAI Responses API."""
 
     active_client = client or create_client()
     serialized_history = serialize_history_items(history)
-    raw_stream = await active_client.responses.create(
-        model=model,
-        input=serialized_history,
-        reasoning=cast("OpenAIReasoning | None", reasoning),
-        instructions=instructions,
-        stream=True,
-    )
+    request_params: ResponseCreateParamsStreaming = {
+        "model": model,
+        "input": serialized_history,
+        "reasoning": cast("OpenAIReasoning | None", reasoning),
+        "instructions": instructions,
+        "stream": True,
+    }
+    if tools:
+        request_params["tools"] = serialize_tools(tools)
+
+    raw_stream = await active_client.responses.create(**request_params)
     return _adapt_stream(raw_stream)
 
 

@@ -25,7 +25,7 @@ from ai.types.stream import (
     ToolCallEndEvent,
     ToolCallStartEvent,
 )
-from ai.types.tools import JsonObject
+from ai.types.tools import JsonObject, ToolDefinition
 from openai import AsyncOpenAI
 from openai.types.responses.response_completed_event import ResponseCompletedEvent
 from openai.types.responses.response_content_part_added_event import (
@@ -502,18 +502,42 @@ def _expect_tool_call_block(
     return block
 
 
-def _collect_events(client: FakeOpenAIClient) -> list[StreamEvent]:
+def _collect_events(
+    client: FakeOpenAIClient,
+    tools: Sequence[ToolDefinition] | None = None,
+) -> list[StreamEvent]:
     async def _collect() -> list[StreamEvent]:
         event_stream = await stream(
             history=[UserMessage(content="hello")],
             model="gpt-5.4",
             reasoning={"effort": "medium"},
             instructions="Follow the repo conventions.",
+            tools=tools,
             client=cast(AsyncOpenAI, client),
         )
         return [event async for event in event_stream]
 
     return asyncio.run(_collect())
+
+
+def _sample_tools() -> list[ToolDefinition]:
+    return [
+        ToolDefinition(
+            name="get_weather",
+            description="Return a simple weather report for a city.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "city": {
+                        "type": "string",
+                        "description": "The city to look up.",
+                    }
+                },
+                "required": ["city"],
+                "additionalProperties": False,
+            },
+        )
+    ]
 
 
 def test_stream_maps_raw_events_with_shared_partial_state() -> None:
@@ -681,6 +705,40 @@ def test_stream_maps_raw_events_with_shared_partial_state() -> None:
         instructions="Follow the repo conventions.",
         stream=True,
         reasoning={"effort": "medium"},
+    )
+
+
+def test_stream_passes_serialized_tools_when_provided() -> None:
+    client = _build_client([_completed_event(1, "resp_tools")])
+
+    _collect_events(client, tools=_sample_tools())
+
+    client.responses.create.assert_awaited_once_with(
+        model="gpt-5.4",
+        input=serialize_history_items([UserMessage(content="hello")]),
+        instructions="Follow the repo conventions.",
+        stream=True,
+        reasoning={"effort": "medium"},
+        tools=[
+            {
+                "type": "function",
+                "name": "get_weather",
+                "description": "Return a simple weather report for a city.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "city": {
+                            "type": "string",
+                            "description": "The city to look up.",
+                        }
+                    },
+                    "required": ["city"],
+                    "additionalProperties": False,
+                },
+                "strict": True,
+                "defer_loading": False,
+            }
+        ],
     )
 
 

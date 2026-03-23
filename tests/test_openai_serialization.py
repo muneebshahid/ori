@@ -2,9 +2,11 @@ from pydantic import TypeAdapter
 
 from ai.types.conversation import AssistantTurn, UserMessage
 from ai.types.stream import ReasoningBlock, TextBlock
+from ai.types.tools import ToolDefinition
 from ai.openai.serialization import (
     serialize_history_items,
     serialize_response_input,
+    serialize_tools,
 )
 from openai.types.responses.response_input_param import ResponseInputParam
 
@@ -145,3 +147,44 @@ def test_serialize_history_items_generates_fallback_message_ids() -> None:
         },
     ]
     TypeAdapter(ResponseInputParam).validate_python(serialized)
+
+
+def test_serialize_tools_maps_tool_definitions_to_function_tools() -> None:
+    tools = [
+        ToolDefinition(
+            name="get_weather",
+            description="Return the current weather for a city.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "city": {
+                        "type": "string",
+                        "description": "The city to look up.",
+                    }
+                },
+                "required": ["city"],
+                "additionalProperties": False,
+            },
+        )
+    ]
+
+    assert serialize_tools(tools) == [
+        {
+            "type": "function",
+            "name": "get_weather",
+            "description": "Return the current weather for a city.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "city": {
+                        "type": "string",
+                        "description": "The city to look up.",
+                    }
+                },
+                "required": ["city"],
+                "additionalProperties": False,
+            },
+            "strict": True,
+            "defer_loading": False,
+        }
+    ]

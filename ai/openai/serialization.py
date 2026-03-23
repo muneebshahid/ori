@@ -1,6 +1,7 @@
 from collections.abc import Sequence
-from typing import Literal
+from typing import Literal, cast
 
+from openai.types.responses.function_tool_param import FunctionToolParam
 from openai.types.responses.easy_input_message_param import EasyInputMessageParam
 from openai.types.responses.response_input_param import ResponseInputParam
 from openai.types.responses.response_input_text_param import ResponseInputTextParam
@@ -15,6 +16,7 @@ from openai.types.responses.response_reasoning_item_param import (
 
 from ai.types.conversation import AssistantTurn, ConversationItem, UserMessage
 from ai.types.stream import ReasoningBlock, TextBlock
+from ai.types.tools import ToolDefinition
 
 
 def serialize_response_input(
@@ -54,6 +56,14 @@ def serialize_history_items(
                 assistant_turn_index += 1
 
     return items
+
+
+def serialize_tools(
+    tools: Sequence[ToolDefinition],
+) -> list[FunctionToolParam]:
+    """Serialize app tool definitions into OpenAI Responses function tools."""
+
+    return [_serialize_tool_definition(tool) for tool in tools]
 
 
 def _serialize_system_prompt(
@@ -101,6 +111,22 @@ def _serialize_assistant_turn(
                 )
 
     return items
+
+
+def _serialize_tool_definition(
+    tool: ToolDefinition,
+) -> FunctionToolParam:
+    return cast(
+        "FunctionToolParam",
+        {
+            "type": "function",
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": cast("dict[str, object]", tool.input_schema),
+            "strict": True,
+            "defer_loading": tool.defer_loading,
+        },
+    )
 
 
 def _serialize_assistant_reasoning_block(
