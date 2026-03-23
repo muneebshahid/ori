@@ -83,10 +83,6 @@ class Agent:
 
     async def _dispatch_event(self, event: StreamEvent) -> None:
         match event:
-            case StreamDoneEvent():
-                await self._handle_stream_done_event(event)
-            case StreamErrorEvent():
-                await self._handle_stream_error_event(event)
             case (
                 StreamStartEvent()
                 | ReasoningStartEvent()
@@ -97,6 +93,11 @@ class Agent:
                 | TextEndEvent()
             ):
                 return None
+            case StreamDoneEvent():
+                await self._handle_stream_done_event(event)
+            case StreamErrorEvent():
+                await self._handle_stream_error_event(event)
+
             case _:
                 return None
 
