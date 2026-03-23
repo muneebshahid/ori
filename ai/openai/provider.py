@@ -8,6 +8,9 @@ from openai.types.responses import (
     ResponseContentPartAddedEvent,
     ResponseCreatedEvent,
     ResponseFailedEvent,
+    ResponseFunctionCallArgumentsDeltaEvent,
+    ResponseFunctionCallArgumentsDoneEvent,
+    ResponseFunctionToolCall,
     ResponseOutputItemAddedEvent,
     ResponseOutputItemDoneEvent,
     ResponseReasoningSummaryPartDoneEvent,
@@ -110,6 +113,10 @@ def _adapt_raw_event(
             event.item, ResponseOutputMessage
         ):
             yield _start_text_block(state, event.item)
+        case ResponseOutputItemAddedEvent() if isinstance(
+            event.item, ResponseFunctionToolCall
+        ):
+            _handle_function_tool_call_added(state, event.item)
         case ResponseReasoningSummaryTextDeltaEvent() if (
             state.current_reasoning_block is not None
         ):
@@ -118,6 +125,10 @@ def _adapt_raw_event(
             state.current_reasoning_block is not None
         ):
             yield _append_reasoning_delta(state, "\n\n")
+        case ResponseFunctionCallArgumentsDeltaEvent():
+            _handle_function_tool_call_arguments_delta(state, event)
+        case ResponseFunctionCallArgumentsDoneEvent():
+            _handle_function_tool_call_arguments_done(state, event)
         case ResponseContentPartAddedEvent() if state.current_text_block is not None:
             _update_text_content_part(state, event)
         case ResponseTextDeltaEvent() | ResponseRefusalDeltaEvent() if (
@@ -135,6 +146,10 @@ def _adapt_raw_event(
             and state.current_text_block is not None
         ):
             yield _finalize_text_block(state, event.item)
+        case ResponseOutputItemDoneEvent() if isinstance(
+            event.item, ResponseFunctionToolCall
+        ):
+            _handle_function_tool_call_done(state, event.item)
         case ResponseCompletedEvent():
             yield StreamDoneEvent(type="done", message=state.partial)
         case ResponseFailedEvent():
@@ -185,6 +200,30 @@ def _append_reasoning_delta(
     )
 
 
+def _handle_function_tool_call_added(
+    state: StreamAssemblyState,
+    item: ResponseFunctionToolCall,
+) -> None:
+    del state, item
+    return None
+
+
+def _handle_function_tool_call_arguments_delta(
+    state: StreamAssemblyState,
+    event: ResponseFunctionCallArgumentsDeltaEvent,
+) -> None:
+    del state, event
+    return None
+
+
+def _handle_function_tool_call_arguments_done(
+    state: StreamAssemblyState,
+    event: ResponseFunctionCallArgumentsDoneEvent,
+) -> None:
+    del state, event
+    return None
+
+
 def _update_text_content_part(
     state: StreamAssemblyState,
     event: ResponseContentPartAddedEvent,
@@ -228,6 +267,14 @@ def _finalize_text_block(
     state.current_text_block = None
     state.current_text_content_part = None
     return TextEndEvent(type="text_end", partial=state.partial)
+
+
+def _handle_function_tool_call_done(
+    state: StreamAssemblyState,
+    item: ResponseFunctionToolCall,
+) -> None:
+    del state, item
+    return None
 
 
 def _extract_error_message(event: ResponseFailedEvent) -> str:
