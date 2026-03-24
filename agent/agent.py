@@ -1,5 +1,5 @@
+from collections.abc import AsyncIterator
 from collections.abc import Sequence
-
 from ai.types.contracts import Reasoning
 from ai.types.conversation import (
     AssistantTurn,
@@ -23,7 +23,26 @@ from ai.types.stream import (
     ToolCallStartEvent,
 )
 from agent.prompt import PROMPT
-from agent.types import StreamFn
+from agent.types import (
+    StreamFn,
+    AgentStartEvent,
+    AgentEndEvent,
+    TurnEndEvent,
+    AgentEvent,
+    TurnStartEvent,
+)
+
+IGNORED_STREAM_EVENT_TYPES = (
+    ReasoningStartEvent,
+    ReasoningDeltaEvent,
+    ReasoningEndEvent,
+    TextStartEvent,
+    TextDeltaEvent,
+    TextEndEvent,
+    ToolCallStartEvent,
+    ToolCallDeltaEvent,
+    ToolCallEndEvent,
+)
 
 
 class AgentRunError(RuntimeError):
@@ -61,7 +80,13 @@ class Agent:
     def add_item(self, item: ConversationItem) -> None:
         self._history.append(item)
 
-    async def run(self, prompt: str) -> None:
+    async def run(self, prompt: str) -> AsyncIterator[AgentEvent]:
+        yield AgentStartEvent()
+        async for event in self._run_stream(prompt):
+            yield event
+        yield AgentEndEvent(items=self._history)
+
+    async def _run_stream(self, prompt: str) -> AsyncIterator[AgentEvent]:
         self._history.append(UserMessage(content=prompt))
         stream = await self._stream_fn(
             self._history,
@@ -71,39 +96,45 @@ class Agent:
         )
 
         async for event in stream:
-            await self._dispatch_event(event)
+            async for agent_event in self._emit_events_for(event):
+                yield agent_event
 
-    async def _dispatch_event(self, event: StreamEvent) -> None:
+    async def _emit_events_for(self, event: StreamEvent) -> AsyncIterator[AgentEvent]:
+        if handler := self._select_event_handler(event):
+            async for agent_event in handler:
+                yield agent_event
+
+    def _select_event_handler(
+        self,
+        event: StreamEvent,
+    ) -> AsyncIterator[AgentEvent] | None:
         match event:
-            case (
-                StreamStartEvent()
-                | ReasoningStartEvent()
-                | ReasoningDeltaEvent()
-                | ReasoningEndEvent()
-                | TextStartEvent()
-                | TextDeltaEvent()
-                | TextEndEvent()
-                | ToolCallStartEvent()
-                | ToolCallDeltaEvent()
-                | ToolCallEndEvent()
-            ):
-                return None
+            case StreamStartEvent():
+                return self._handle_stream_start_event(event)
             case StreamDoneEvent():
-                await self._handle_stream_done_event(event)
+                return self._handle_stream_done_event(event)
             case StreamErrorEvent():
-                await self._handle_stream_error_event(event)
-
-            case _:
+                return self._handle_stream_error_event(event)
+            case _ if isinstance(event, IGNORED_STREAM_EVENT_TYPES):
                 return None
+
+        return None
+
+    async def _handle_stream_start_event(
+        self,
+        event: StreamStartEvent,
+    ) -> AsyncIterator[AgentEvent]:
+        yield TurnStartEvent()
 
     async def _handle_stream_done_event(
         self,
         event: StreamDoneEvent,
-    ) -> None:
-        self._history.append(_build_assistant_turn(event.message))
-        return None
+    ) -> AsyncIterator[AgentEvent]:
+        message = _build_assistant_turn(event.message)
+        self._history.append(message)
+        yield TurnEndEvent(message=message, tool_results=[])
 
-    async def _handle_stream_error_event(
+    def _handle_stream_error_event(
         self,
         event: StreamErrorEvent,
     ) -> None:

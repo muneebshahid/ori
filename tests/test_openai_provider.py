@@ -32,6 +32,7 @@ from openai.types.responses.response_content_part_added_event import (
     ResponseContentPartAddedEvent,
 )
 from openai.types.responses.response_created_event import ResponseCreatedEvent
+from openai.types.responses.response_error_event import ResponseErrorEvent
 from openai.types.responses.response_failed_event import ResponseFailedEvent
 from openai.types.responses.response_function_call_arguments_delta_event import (
     ResponseFunctionCallArgumentsDeltaEvent,
@@ -39,6 +40,7 @@ from openai.types.responses.response_function_call_arguments_delta_event import 
 from openai.types.responses.response_function_call_arguments_done_event import (
     ResponseFunctionCallArgumentsDoneEvent,
 )
+from openai.types.responses.response_incomplete_event import ResponseIncompleteEvent
 from openai.types.responses.response_output_item_added_event import (
     ResponseOutputItemAddedEvent,
 )
@@ -63,9 +65,11 @@ RawResponseEvent: TypeAlias = (
     ResponseCompletedEvent
     | ResponseContentPartAddedEvent
     | ResponseCreatedEvent
+    | ResponseErrorEvent
     | ResponseFailedEvent
     | ResponseFunctionCallArgumentsDeltaEvent
     | ResponseFunctionCallArgumentsDoneEvent
+    | ResponseIncompleteEvent
     | ResponseOutputItemAddedEvent
     | ResponseOutputItemDoneEvent
     | ResponseReasoningSummaryPartAddedEvent
@@ -112,11 +116,15 @@ def _response_payload(
     *,
     output: Sequence[JsonObject] | None = None,
     error: dict[str, str] | None = None,
+    incomplete_reason: str | None = None,
 ) -> JsonObject:
     return {
         "id": response_id,
         "created_at": 0.0,
         "error": error,
+        "incomplete_details": (
+            {"reason": incomplete_reason} if incomplete_reason is not None else None
+        ),
         "model": "gpt-5.4",
         "object": "response",
         "output": list(output or []),
@@ -165,6 +173,42 @@ def _failed_event(
                 response_id,
                 "failed",
                 error={"code": "server_error", "message": message},
+            ),
+        }
+    )
+
+
+def _error_event(
+    sequence_number: int,
+    message: str,
+) -> ResponseErrorEvent:
+    return ResponseErrorEvent.model_validate(
+        {
+            "type": "error",
+            "sequence_number": sequence_number,
+            "code": "server_error",
+            "message": message,
+            "param": None,
+        }
+    )
+
+
+def _incomplete_event(
+    sequence_number: int,
+    response_id: str,
+    reason: str,
+    *,
+    output: Sequence[JsonObject] | None = None,
+) -> ResponseIncompleteEvent:
+    return ResponseIncompleteEvent.model_validate(
+        {
+            "type": "response.incomplete",
+            "sequence_number": sequence_number,
+            "response": _response_payload(
+                response_id,
+                "incomplete",
+                output=output,
+                incomplete_reason=reason,
             ),
         }
     )
@@ -960,3 +1004,75 @@ def test_stream_maps_failed_response_into_error_event() -> None:
     assert error.message == "Model overloaded"
     assert error.partial is not None
     assert error.partial.response_id == "resp_failed"
+
+
+def test_stream_maps_error_event_into_error_event() -> None:
+    raw_events = [
+        _created_event(1, "resp_error"),
+        _error_event(2, "Socket closed"),
+    ]
+
+    client = _build_client(raw_events)
+    events = _collect_events(client)
+    error = _expect_event_type(events[1], StreamErrorEvent)
+
+    assert [event.type for event in events] == ["start", "error"]
+    assert error.message == "Socket closed"
+    assert error.partial is not None
+    assert error.partial.response_id == "resp_error"
+
+
+def test_stream_maps_incomplete_max_output_tokens_into_length_done() -> None:
+    raw_events = [
+        _created_event(1, "resp_incomplete"),
+        _message_added_event(2, "msg_incomplete", output_index=0),
+        _content_part_added_event(
+            3,
+            "msg_incomplete",
+            "output_text",
+            output_index=0,
+            content_index=0,
+        ),
+        _text_delta_event(
+            4,
+            "msg_incomplete",
+            "Partial answer",
+            output_index=0,
+            content_index=0,
+        ),
+        _message_done_event(
+            5,
+            "msg_incomplete",
+            [{"type": "output_text", "text": "Partial answer", "annotations": []}],
+            output_index=0,
+        ),
+        _incomplete_event(6, "resp_incomplete", "max_output_tokens"),
+    ]
+
+    client = _build_client(raw_events)
+    events = _collect_events(client)
+    done = _expect_event_type(events[-1], StreamDoneEvent)
+
+    assert [event.type for event in events] == [
+        "start",
+        "text_start",
+        "text_delta",
+        "text_end",
+        "done",
+    ]
+    assert done.message.stop_reason == "length"
+    assert _expect_text_block(done.message.content[0]).text == "Partial answer"
+
+
+def test_stream_maps_incomplete_content_filter_into_error_event() -> None:
+    raw_events = [
+        _created_event(1, "resp_filtered"),
+        _incomplete_event(2, "resp_filtered", "content_filter"),
+    ]
+
+    client = _build_client(raw_events)
+    events = _collect_events(client)
+    error = _expect_event_type(events[1], StreamErrorEvent)
+
+    assert [event.type for event in events] == ["start", "error"]
+    assert error.message == "OpenAI response was truncated by the content filter."

@@ -1,9 +1,16 @@
+import json
 from collections.abc import Sequence
 from typing import Literal, cast
 
 from openai.types.responses.function_tool_param import FunctionToolParam
 from openai.types.responses.easy_input_message_param import EasyInputMessageParam
 from openai.types.responses.response_input_param import ResponseInputParam
+from openai.types.responses.response_input_param import (
+    FunctionCallOutput as ResponseFunctionCallOutputParam,
+)
+from openai.types.responses.response_function_tool_call_param import (
+    ResponseFunctionToolCallParam,
+)
 from openai.types.responses.response_input_text_param import ResponseInputTextParam
 from openai.types.responses.response_output_message_param import (
     ResponseOutputMessageParam,
@@ -14,8 +21,13 @@ from openai.types.responses.response_reasoning_item_param import (
     Summary as ResponseReasoningSummaryParam,
 )
 
-from ai.types.conversation import AssistantTurn, ConversationItem, UserMessage
-from ai.types.stream import ReasoningBlock, TextBlock
+from ai.types.conversation import (
+    AssistantTurn,
+    ConversationItem,
+    ToolResultTurn,
+    UserMessage,
+)
+from ai.types.stream import ReasoningBlock, TextBlock, ToolCallBlock
 from ai.types.tools import ToolDefinition
 
 
@@ -54,6 +66,8 @@ def serialize_history_items(
                     )
                 )
                 assistant_turn_index += 1
+            case ToolResultTurn():
+                items.append(_serialize_tool_result_turn(item))
 
     return items
 
@@ -109,6 +123,8 @@ def _serialize_assistant_turn(
                         block_index=block_index,
                     )
                 )
+            case ToolCallBlock():
+                items.append(_serialize_assistant_tool_call_block(block))
 
     return items
 
@@ -169,6 +185,28 @@ def _serialize_assistant_text_block(
     if block.phase is not None:
         message["phase"] = block.phase
     return message
+
+
+def _serialize_assistant_tool_call_block(
+    block: ToolCallBlock,
+) -> ResponseFunctionToolCallParam:
+    return {
+        "type": "function_call",
+        "id": block.provider_item_id or block.call_id,
+        "call_id": block.call_id,
+        "name": block.name,
+        "arguments": json.dumps(block.arguments),
+    }
+
+
+def _serialize_tool_result_turn(
+    turn: ToolResultTurn,
+) -> ResponseFunctionCallOutputParam:
+    return {
+        "type": "function_call_output",
+        "call_id": turn.call_id,
+        "output": turn.content,
+    }
 
 
 def _build_input_text(

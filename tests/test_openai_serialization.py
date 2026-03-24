@@ -1,7 +1,7 @@
 from pydantic import TypeAdapter
 
-from ai.types.conversation import AssistantTurn, UserMessage
-from ai.types.stream import ReasoningBlock, TextBlock
+from ai.types.conversation import AssistantTurn, ToolResultTurn, UserMessage
+from ai.types.stream import ReasoningBlock, TextBlock, ToolCallBlock
 from ai.types.tools import ToolDefinition
 from ai.openai.serialization import (
     serialize_history_items,
@@ -144,6 +144,59 @@ def test_serialize_history_items_generates_fallback_message_ids() -> None:
                     "annotations": [],
                 }
             ],
+        },
+    ]
+    TypeAdapter(ResponseInputParam).validate_python(serialized)
+
+
+def test_serialize_history_items_replays_tool_calls_and_tool_results() -> None:
+    history = [
+        AssistantTurn(
+            content=[
+                TextBlock(text="Checking the weather.", message_id="msg_0"),
+                ToolCallBlock(
+                    call_id="call_123",
+                    name="get_weather",
+                    arguments={"city": "Berlin"},
+                    provider_item_id="fc_123",
+                ),
+            ]
+        ),
+        ToolResultTurn(
+            call_id="call_123",
+            tool_name="get_weather",
+            content="Temperature: 14 C",
+            is_error=False,
+        ),
+    ]
+
+    serialized = serialize_history_items(history)
+
+    assert serialized == [
+        {
+            "type": "message",
+            "role": "assistant",
+            "status": "completed",
+            "id": "msg_0",
+            "content": [
+                {
+                    "type": "output_text",
+                    "text": "Checking the weather.",
+                    "annotations": [],
+                }
+            ],
+        },
+        {
+            "type": "function_call",
+            "id": "fc_123",
+            "call_id": "call_123",
+            "name": "get_weather",
+            "arguments": '{"city": "Berlin"}',
+        },
+        {
+            "type": "function_call_output",
+            "call_id": "call_123",
+            "output": "Temperature: 14 C",
         },
     ]
     TypeAdapter(ResponseInputParam).validate_python(serialized)

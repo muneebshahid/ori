@@ -8,10 +8,12 @@ from openai.types.responses import (
     ResponseCompletedEvent,
     ResponseContentPartAddedEvent,
     ResponseCreatedEvent,
+    ResponseErrorEvent,
     ResponseFailedEvent,
     ResponseFunctionCallArgumentsDeltaEvent,
     ResponseFunctionCallArgumentsDoneEvent,
     ResponseFunctionToolCall,
+    ResponseIncompleteEvent,
     ResponseOutputItemAddedEvent,
     ResponseOutputItemDoneEvent,
     ResponseReasoningSummaryPartDoneEvent,
@@ -136,7 +138,13 @@ async def _adapt_stream(
         if adapted_event := _adapt_raw_event(state, event):
             yield adapted_event
 
-        if isinstance(event, ResponseCompletedEvent | ResponseFailedEvent):
+        if isinstance(
+            event,
+            ResponseCompletedEvent
+            | ResponseErrorEvent
+            | ResponseFailedEvent
+            | ResponseIncompleteEvent,
+        ):
             return
 
 
@@ -186,8 +194,15 @@ def _adapt_raw_event(
         ):
             return _finalize_tool_call_block(state, event.item)
         case ResponseCompletedEvent():
-            state.partial.stop_reason = _extract_stop_reason(event)
-            return StreamDoneEvent(type="done", message=state.partial)
+            return _handle_completed_event(state, event)
+        case ResponseIncompleteEvent():
+            return _handle_incomplete_event(state, event)
+        case ResponseErrorEvent():
+            return StreamErrorEvent(
+                type="error",
+                message=_extract_stream_error_message(event),
+                partial=state.partial,
+            )
         case ResponseFailedEvent():
             return StreamErrorEvent(
                 type="error",
@@ -363,11 +378,60 @@ def _extract_error_message(event: ResponseFailedEvent) -> str:
     return "OpenAI response failed."
 
 
-def _extract_stop_reason(event: ResponseCompletedEvent) -> StopReason:
-    if any(
+def _handle_completed_event(
+    state: StreamAssemblyState,
+    event: ResponseCompletedEvent,
+) -> StreamDoneEvent:
+    state.partial.stop_reason = _extract_stop_reason(event)
+    return StreamDoneEvent(type="done", message=state.partial)
+
+
+def _handle_incomplete_event(
+    state: StreamAssemblyState,
+    event: ResponseIncompleteEvent,
+) -> StreamDoneEvent | StreamErrorEvent:
+    stop_reason = _extract_stop_reason(event)
+    if stop_reason == "error":
+        return StreamErrorEvent(
+            type="error",
+            message=_extract_incomplete_error_message(event),
+            partial=state.partial,
+        )
+
+    state.partial.stop_reason = stop_reason
+    return StreamDoneEvent(type="done", message=state.partial)
+
+
+def _extract_stream_error_message(event: ResponseErrorEvent) -> str:
+    return event.message or "OpenAI stream error."
+
+
+def _extract_incomplete_error_message(event: ResponseIncompleteEvent) -> str:
+    reason = getattr(event.response.incomplete_details, "reason", None)
+    if reason == "content_filter":
+        return "OpenAI response was truncated by the content filter."
+    return "OpenAI response incomplete."
+
+
+def _extract_stop_reason(
+    event: ResponseCompletedEvent | ResponseIncompleteEvent,
+) -> StopReason:
+    base_reason = _extract_base_stop_reason(event)
+    if base_reason == "stop" and any(
         isinstance(item, ResponseFunctionToolCall) for item in event.response.output
     ):
         return "tool_use"
+    return base_reason
+
+
+def _extract_base_stop_reason(
+    event: ResponseCompletedEvent | ResponseIncompleteEvent,
+) -> StopReason:
+    if isinstance(event, ResponseIncompleteEvent):
+        reason = getattr(event.response.incomplete_details, "reason", None)
+        if reason == "content_filter":
+            return "error"
+        return "length"
     return "stop"
 
 
