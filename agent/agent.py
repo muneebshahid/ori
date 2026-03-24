@@ -19,6 +19,9 @@ from ai.types.stream import (
     TextDeltaEvent,
     TextEndEvent,
     TextStartEvent,
+    ToolCallDeltaEvent,
+    ToolCallEndEvent,
+    ToolCallStartEvent,
 )
 from agent.prompt import PROMPT
 
@@ -91,6 +94,9 @@ class Agent:
                 | TextStartEvent()
                 | TextDeltaEvent()
                 | TextEndEvent()
+                | ToolCallStartEvent()
+                | ToolCallDeltaEvent()
+                | ToolCallEndEvent()
             ):
                 return None
             case StreamDoneEvent():
