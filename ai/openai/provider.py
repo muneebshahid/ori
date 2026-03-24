@@ -68,10 +68,35 @@ SupportedTextPartType: TypeAlias = Literal["output_text", "refusal"]
 @dataclass
 class StreamAssemblyState:
     partial: AssistantMessage = field(default_factory=AssistantMessage)
-    current_reasoning_block: ReasoningBlock | None = None
-    current_text_block: TextBlock | None = None
+    current_block: ReasoningBlock | TextBlock | ToolCallBlock | None = None
     active_text_part_type: SupportedTextPartType | None = None
-    current_tool_call_block: ToolCallBlock | None = None
+
+    @property
+    def is_reasoning(self) -> bool:
+        return isinstance(self.current_block, ReasoningBlock)
+
+    @property
+    def is_text(self) -> bool:
+        return isinstance(self.current_block, TextBlock)
+
+    @property
+    def is_tool_call(self) -> bool:
+        return isinstance(self.current_block, ToolCallBlock)
+
+    @property
+    def reasoning_block(self) -> ReasoningBlock:
+        assert isinstance(self.current_block, ReasoningBlock)
+        return self.current_block
+
+    @property
+    def text_block(self) -> TextBlock:
+        assert isinstance(self.current_block, TextBlock)
+        return self.current_block
+
+    @property
+    def tool_call_block(self) -> ToolCallBlock:
+        assert isinstance(self.current_block, ToolCallBlock)
+        return self.current_block
 
 
 async def stream(
@@ -134,40 +159,30 @@ def _adapt_raw_event(
             event.item, ResponseFunctionToolCall
         ):
             yield _start_tool_call_block(state, event.item)
-        case ResponseReasoningSummaryTextDeltaEvent() if (
-            state.current_reasoning_block is not None
-        ):
+        case ResponseReasoningSummaryTextDeltaEvent() if state.is_reasoning:
             yield _append_reasoning_delta(state, event.delta)
-        case ResponseReasoningSummaryPartDoneEvent() if (
-            state.current_reasoning_block is not None
-        ):
+        case ResponseReasoningSummaryPartDoneEvent() if state.is_reasoning:
             yield _append_reasoning_delta(state, "\n\n")
-        case ResponseFunctionCallArgumentsDeltaEvent() if (
-            state.current_tool_call_block is not None
-        ):
+        case ResponseFunctionCallArgumentsDeltaEvent() if state.is_tool_call:
             yield _append_tool_call_arguments_delta(state, event)
-        case ResponseFunctionCallArgumentsDoneEvent() if (
-            state.current_tool_call_block is not None
-        ):
+        case ResponseFunctionCallArgumentsDoneEvent() if state.is_tool_call:
             _handle_function_tool_call_arguments_done(state, event)
-        case ResponseContentPartAddedEvent() if state.current_text_block is not None:
+        case ResponseContentPartAddedEvent() if state.is_text:
             _track_active_text_part(state, event)
         case ResponseTextDeltaEvent() if _can_append_output_text_delta(state):
             yield _append_text_delta(state, event.delta)
         case ResponseRefusalDeltaEvent() if _can_append_refusal_delta(state):
             yield _append_text_delta(state, event.delta)
         case ResponseOutputItemDoneEvent() if (
-            isinstance(event.item, ResponseReasoningItem)
-            and state.current_reasoning_block is not None
+            isinstance(event.item, ResponseReasoningItem) and state.is_reasoning
         ):
             yield _finalize_reasoning_block(state, event.item)
         case ResponseOutputItemDoneEvent() if (
-            isinstance(event.item, ResponseOutputMessage)
-            and state.current_text_block is not None
+            isinstance(event.item, ResponseOutputMessage) and state.is_text
         ):
             yield _finalize_text_block(state, event.item)
-        case ResponseOutputItemDoneEvent() if isinstance(
-            event.item, ResponseFunctionToolCall
+        case ResponseOutputItemDoneEvent() if (
+            isinstance(event.item, ResponseFunctionToolCall) and state.is_tool_call
         ):
             yield _finalize_tool_call_block(state, event.item)
         case ResponseCompletedEvent():
@@ -185,14 +200,12 @@ def _start_reasoning_block(
     state: StreamAssemblyState,
     item: ResponseReasoningItem,
 ) -> ReasoningStartEvent:
-    state.current_reasoning_block = ReasoningBlock(
+    state.current_block = ReasoningBlock(
         summary_text="",
         reasoning_id=item.id,
     )
-    state.current_text_block = None
     state.active_text_part_type = None
-    state.current_tool_call_block = None
-    state.partial.content.append(state.current_reasoning_block)
+    state.partial.content.append(state.current_block)
     return ReasoningStartEvent(type="reasoning_start", partial=state.partial)
 
 
@@ -200,15 +213,13 @@ def _start_text_block(
     state: StreamAssemblyState,
     item: ResponseOutputMessage,
 ) -> TextStartEvent:
-    state.current_text_block = TextBlock(
+    state.current_block = TextBlock(
         text="",
         message_id=item.id,
         phase=_extract_message_phase(item),
     )
-    state.current_reasoning_block = None
     state.active_text_part_type = None
-    state.current_tool_call_block = None
-    state.partial.content.append(state.current_text_block)
+    state.partial.content.append(state.current_block)
     return TextStartEvent(type="text_start", partial=state.partial)
 
 
@@ -216,8 +227,7 @@ def _append_reasoning_delta(
     state: StreamAssemblyState,
     delta: str,
 ) -> ReasoningDeltaEvent:
-    assert state.current_reasoning_block is not None
-    state.current_reasoning_block.summary_text += delta
+    state.reasoning_block.summary_text += delta
     return ReasoningDeltaEvent(
         type="reasoning_delta", delta=delta, partial=state.partial
     )
@@ -227,17 +237,15 @@ def _start_tool_call_block(
     state: StreamAssemblyState,
     item: ResponseFunctionToolCall,
 ) -> ToolCallStartEvent:
-    state.current_reasoning_block = None
-    state.current_text_block = None
     state.active_text_part_type = None
-    state.current_tool_call_block = ToolCallBlock(
+    state.current_block = ToolCallBlock(
         call_id=item.call_id,
         name=item.name,
         arguments=_parse_tool_call_arguments(item.arguments or ""),
         provider_item_id=item.id,
         namespace=item.namespace,
     )
-    state.partial.content.append(state.current_tool_call_block)
+    state.partial.content.append(state.current_block)
     return ToolCallStartEvent(type="tool_call_start", partial=state.partial)
 
 
@@ -245,7 +253,6 @@ def _append_tool_call_arguments_delta(
     state: StreamAssemblyState,
     event: ResponseFunctionCallArgumentsDeltaEvent,
 ) -> ToolCallDeltaEvent:
-    assert state.current_tool_call_block is not None
     return ToolCallDeltaEvent(
         type="tool_call_delta",
         delta=event.delta,
@@ -257,13 +264,7 @@ def _handle_function_tool_call_arguments_done(
     state: StreamAssemblyState,
     event: ResponseFunctionCallArgumentsDoneEvent,
 ) -> None:
-    if state.current_tool_call_block is None:
-        return None
-
-    state.current_tool_call_block.arguments = _parse_tool_call_arguments(
-        event.arguments
-    )
-    return None
+    state.tool_call_block.arguments = _parse_tool_call_arguments(event.arguments)
 
 
 def _track_active_text_part(
@@ -274,25 +275,18 @@ def _track_active_text_part(
 
 
 def _can_append_output_text_delta(state: StreamAssemblyState) -> bool:
-    return (
-        state.current_text_block is not None
-        and state.active_text_part_type == "output_text"
-    )
+    return state.is_text and state.active_text_part_type == "output_text"
 
 
 def _can_append_refusal_delta(state: StreamAssemblyState) -> bool:
-    return (
-        state.current_text_block is not None
-        and state.active_text_part_type == "refusal"
-    )
+    return state.is_text and state.active_text_part_type == "refusal"
 
 
 def _append_text_delta(
     state: StreamAssemblyState,
     delta: str,
 ) -> TextDeltaEvent:
-    assert state.current_text_block is not None
-    state.current_text_block.text += delta
+    state.text_block.text += delta
     return TextDeltaEvent(type="text_delta", delta=delta, partial=state.partial)
 
 
@@ -300,10 +294,9 @@ def _finalize_reasoning_block(
     state: StreamAssemblyState,
     item: ResponseReasoningItem,
 ) -> ReasoningEndEvent:
-    assert state.current_reasoning_block is not None
     if summary_text := _join_reasoning_summary_text(item.summary):
-        state.current_reasoning_block.summary_text = summary_text
-    state.current_reasoning_block = None
+        state.reasoning_block.summary_text = summary_text
+    state.current_block = None
     return ReasoningEndEvent(type="reasoning_end", partial=state.partial)
 
 
@@ -311,11 +304,10 @@ def _finalize_text_block(
     state: StreamAssemblyState,
     item: ResponseOutputMessage,
 ) -> TextEndEvent:
-    assert state.current_text_block is not None
-    state.current_text_block.text = _join_message_text(item.content)
-    state.current_text_block.message_id = item.id
-    state.current_text_block.phase = _extract_message_phase(item)
-    state.current_text_block = None
+    state.text_block.text = _join_message_text(item.content)
+    state.text_block.message_id = item.id
+    state.text_block.phase = _extract_message_phase(item)
+    state.current_block = None
     state.active_text_part_type = None
     return TextEndEvent(type="text_end", partial=state.partial)
 
@@ -324,15 +316,12 @@ def _finalize_tool_call_block(
     state: StreamAssemblyState,
     item: ResponseFunctionToolCall,
 ) -> ToolCallEndEvent:
-    assert state.current_tool_call_block is not None
-    state.current_tool_call_block.call_id = item.call_id
-    state.current_tool_call_block.name = item.name
-    state.current_tool_call_block.arguments = _parse_tool_call_arguments(
-        item.arguments or ""
-    )
-    state.current_tool_call_block.provider_item_id = item.id
-    state.current_tool_call_block.namespace = item.namespace
-    state.current_tool_call_block = None
+    state.tool_call_block.call_id = item.call_id
+    state.tool_call_block.name = item.name
+    state.tool_call_block.arguments = _parse_tool_call_arguments(item.arguments or "")
+    state.tool_call_block.provider_item_id = item.id
+    state.tool_call_block.namespace = item.namespace
+    state.current_block = None
     return ToolCallEndEvent(type="tool_call_end", partial=state.partial)
 
 
