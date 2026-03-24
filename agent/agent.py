@@ -1,7 +1,6 @@
-from collections.abc import Awaitable, Sequence
-from typing import Protocol
+from collections.abc import Sequence
 
-from ai.types.contracts import AsyncEventStream, Reasoning
+from ai.types.contracts import Reasoning
 from ai.types.conversation import (
     AssistantTurn,
     ConversationItem,
@@ -24,17 +23,7 @@ from ai.types.stream import (
     ToolCallStartEvent,
 )
 from agent.prompt import PROMPT
-
-
-class StreamFn(Protocol):
-    def __call__(
-        self,
-        history: Sequence[ConversationItem],
-        model: str,
-        *,
-        instructions: str,
-        reasoning: Reasoning | None,
-    ) -> Awaitable[AsyncEventStream]: ...
+from agent.types import StreamFn
 
 
 class AgentRunError(RuntimeError):
