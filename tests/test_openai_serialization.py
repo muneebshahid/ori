@@ -19,8 +19,7 @@ def test_serialize_response_input_flattens_sample_thread() -> None:
             content=[
                 ReasoningBlock(
                     summary_text="Draft a short seasonal poem.",
-                    reasoning_id="rs_123",
-                    encrypted_content="enc_123",
+                    reasoning_signature='{"id":"rs_123","type":"reasoning","summary":[{"type":"summary_text","text":"Draft a short seasonal poem."}],"encrypted_content":"enc_123","status":"completed"}',
                 ),
                 TextBlock(
                     text="Soft rain on pine leaves\nSilver threads stitch dusk to earth\nNight drinks every sound",
@@ -34,7 +33,6 @@ def test_serialize_response_input_flattens_sample_thread() -> None:
             content=[
                 ReasoningBlock(
                     summary_text="This partial turn should be skipped.",
-                    reasoning_id="rs_skip",
                 )
             ],
         ),
@@ -65,6 +63,7 @@ def test_serialize_response_input_flattens_sample_thread() -> None:
                 }
             ],
             "encrypted_content": "enc_123",
+            "status": "completed",
         },
         {
             "type": "message",
@@ -117,6 +116,23 @@ def test_serialize_history_items_skips_reasoning_without_replay_metadata() -> No
             ],
         },
     ]
+    TypeAdapter(ResponseInputParam).validate_python(serialized)
+
+
+def test_serialize_history_items_skips_reasoning_without_signature() -> None:
+    history = [
+        AssistantTurn(
+            content=[
+                ReasoningBlock(
+                    summary_text="Think first.",
+                )
+            ]
+        )
+    ]
+
+    serialized = serialize_history_items(history)
+
+    assert serialized == []
     TypeAdapter(ResponseInputParam).validate_python(serialized)
 
 

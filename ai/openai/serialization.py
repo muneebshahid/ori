@@ -18,7 +18,6 @@ from openai.types.responses.response_output_message_param import (
 from openai.types.responses.response_output_text_param import ResponseOutputTextParam
 from openai.types.responses.response_reasoning_item_param import (
     ResponseReasoningItemParam,
-    Summary as ResponseReasoningSummaryParam,
 )
 
 from ai.types.conversation import (
@@ -108,13 +107,10 @@ def _serialize_assistant_turn(
 
     for block_index, block in enumerate(turn.content):
         match block:
-            case ReasoningBlock(reasoning_id=reasoning_id) if reasoning_id is not None:
-                items.append(
-                    _serialize_assistant_reasoning_block(
-                        block,
-                        reasoning_id,
-                    )
-                )
+            case ReasoningBlock(reasoning_signature=reasoning_signature) if (
+                reasoning_signature is not None
+            ):
+                items.append(_serialize_assistant_reasoning_block(reasoning_signature))
             case TextBlock():
                 items.append(
                     _serialize_assistant_text_block(
@@ -146,21 +142,9 @@ def _serialize_tool_definition(
 
 
 def _serialize_assistant_reasoning_block(
-    block: ReasoningBlock,
-    reasoning_id: str,
+    reasoning_signature: str,
 ) -> ResponseReasoningItemParam:
-    summary: ResponseReasoningSummaryParam = {
-        "type": "summary_text",
-        "text": block.summary_text,
-    }
-    reasoning_item: ResponseReasoningItemParam = {
-        "type": "reasoning",
-        "id": reasoning_id,
-        "summary": [summary],
-    }
-    if block.encrypted_content is not None:
-        reasoning_item["encrypted_content"] = block.encrypted_content
-    return reasoning_item
+    return _deserialize_reasoning_signature(reasoning_signature)
 
 
 def _serialize_assistant_text_block(
@@ -223,3 +207,10 @@ def _build_fallback_message_id(
     block_index: int,
 ) -> str:
     return f"msg_{assistant_turn_index}_{block_index}"
+
+
+def _deserialize_reasoning_signature(
+    reasoning_signature: str,
+) -> ResponseReasoningItemParam:
+    parsed = json.loads(reasoning_signature)
+    return cast("ResponseReasoningItemParam", parsed)

@@ -219,7 +219,6 @@ def _start_reasoning_block(
 ) -> ReasoningStartEvent:
     state.current_block = ReasoningBlock(
         summary_text="",
-        reasoning_id=item.id,
     )
     state.active_text_part_type = None
     state.partial.content.append(state.current_block)
@@ -313,6 +312,7 @@ def _finalize_reasoning_block(
 ) -> ReasoningEndEvent:
     if summary_text := _join_reasoning_summary_text(item.summary):
         state.reasoning_block.summary_text = summary_text
+    state.reasoning_block.reasoning_signature = _serialize_reasoning_item(item)
     state.current_block = None
     return ReasoningEndEvent(type="reasoning_end", partial=state.partial)
 
@@ -439,6 +439,10 @@ def _join_reasoning_summary_text(
     summary: Sequence[ResponseReasoningSummary],
 ) -> str:
     return "\n\n".join(item.text for item in summary if item.text)
+
+
+def _serialize_reasoning_item(item: ResponseReasoningItem) -> str:
+    return json.dumps(item.model_dump(mode="json", exclude_none=True))
 
 
 def _join_message_text(content: Sequence[ResponseMessageContent]) -> str:

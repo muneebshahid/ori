@@ -1,4 +1,5 @@
 import asyncio
+import json
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from typing import TypeAlias, TypeVar, cast
@@ -745,6 +746,20 @@ def test_stream_maps_raw_events_with_shared_partial_state() -> None:
         done_reasoning_block.summary_text
         == "Exploring reasoning traces\n\nFormulating reasoning traces"
     )
+    assert done_reasoning_block.reasoning_signature is not None
+    assert (
+        done_reasoning_block.reasoning_signature
+        == final_reasoning_block.reasoning_signature
+    )
+    assert json.loads(done_reasoning_block.reasoning_signature) == {
+        "id": "rs_123",
+        "type": "reasoning",
+        "summary": [
+            {"type": "summary_text", "text": "Exploring reasoning traces"},
+            {"type": "summary_text", "text": "Formulating reasoning traces"},
+        ],
+        "status": "completed",
+    }
     assert done_text_block.text == "Hello world"
     client.responses.create.assert_awaited_once_with(
         model="gpt-5.4",

@@ -22,8 +22,7 @@ class ReasoningBlock(BaseModel):
 
     type: Literal["reasoning"] = "reasoning"
     summary_text: str
-    reasoning_id: str | None = None
-    encrypted_content: str | None = None
+    reasoning_signature: str | None = None
 
 
 class ToolCallBlock(BaseModel):
