@@ -198,16 +198,14 @@ def _adapt_raw_event(
         case ResponseIncompleteEvent():
             return _handle_incomplete_event(state, event)
         case ResponseErrorEvent():
-            return StreamErrorEvent(
-                type="error",
-                message=_extract_stream_error_message(event),
-                partial=state.partial,
+            return _build_stream_error_event(
+                state,
+                _extract_stream_error_message(event),
             )
         case ResponseFailedEvent():
-            return StreamErrorEvent(
-                type="error",
-                message=_extract_error_message(event),
-                partial=state.partial,
+            return _build_stream_error_event(
+                state,
+                _extract_error_message(event),
             )
 
     return None
@@ -392,14 +390,22 @@ def _handle_incomplete_event(
 ) -> StreamDoneEvent | StreamErrorEvent:
     stop_reason = _extract_stop_reason(event)
     if stop_reason == "error":
-        return StreamErrorEvent(
-            type="error",
-            message=_extract_incomplete_error_message(event),
-            partial=state.partial,
+        return _build_stream_error_event(
+            state,
+            _extract_incomplete_error_message(event),
         )
 
     state.partial.stop_reason = stop_reason
     return StreamDoneEvent(type="done", message=state.partial)
+
+
+def _build_stream_error_event(
+    state: StreamAssemblyState,
+    error_message: str,
+) -> StreamErrorEvent:
+    state.partial.stop_reason = "error"
+    state.partial.error_message = error_message
+    return StreamErrorEvent(type="error", error=state.partial)
 
 
 def _extract_stream_error_message(event: ResponseErrorEvent) -> str:

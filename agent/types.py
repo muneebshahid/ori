@@ -22,7 +22,7 @@ from ai.types.stream import (
     ToolCallEndEvent,
     ToolCallStartEvent,
 )
-from ai.types.tools import JsonObject
+from ai.types.tools import JsonObject, ToolDefinition
 
 AgentMessage: TypeAlias = (
     UserMessage | AssistantMessage | AssistantTurn | ToolResultTurn
@@ -48,6 +48,7 @@ class StreamFn(Protocol):
         *,
         instructions: str,
         reasoning: Reasoning | None,
+        tools: Sequence[ToolDefinition] | None,
     ) -> Awaitable[AsyncEventStream]: ...
 
 

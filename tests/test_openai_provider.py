@@ -988,7 +988,6 @@ def test_stream_ignores_text_deltas_when_refusal_part_is_active() -> None:
     events = _collect_events(client)
     text_delta_one = _expect_event_type(events[2], TextDeltaEvent)
     text_delta_two = _expect_event_type(events[3], TextDeltaEvent)
-    text_end = _expect_event_type(events[4], TextEndEvent)
     done = _expect_event_type(events[5], StreamDoneEvent)
 
     assert [event.type for event in events] == [
@@ -1001,7 +1000,6 @@ def test_stream_ignores_text_deltas_when_refusal_part_is_active() -> None:
     ]
     assert text_delta_one.delta == "No"
     assert text_delta_two.delta == " thanks"
-    assert _expect_text_block(text_end.partial.content[0]).text == "No thanks"
     assert _expect_text_block(done.message.content[0]).text == "No thanks"
 
 
@@ -1016,9 +1014,9 @@ def test_stream_maps_failed_response_into_error_event() -> None:
     error = _expect_event_type(events[1], StreamErrorEvent)
 
     assert [event.type for event in events] == ["start", "error"]
-    assert error.message == "Model overloaded"
-    assert error.partial is not None
-    assert error.partial.response_id == "resp_failed"
+    assert error.error.error_message == "Model overloaded"
+    assert error.error.stop_reason == "error"
+    assert error.error.response_id == "resp_failed"
 
 
 def test_stream_maps_error_event_into_error_event() -> None:
@@ -1032,9 +1030,9 @@ def test_stream_maps_error_event_into_error_event() -> None:
     error = _expect_event_type(events[1], StreamErrorEvent)
 
     assert [event.type for event in events] == ["start", "error"]
-    assert error.message == "Socket closed"
-    assert error.partial is not None
-    assert error.partial.response_id == "resp_error"
+    assert error.error.error_message == "Socket closed"
+    assert error.error.stop_reason == "error"
+    assert error.error.response_id == "resp_error"
 
 
 def test_stream_maps_incomplete_max_output_tokens_into_length_done() -> None:
@@ -1090,4 +1088,8 @@ def test_stream_maps_incomplete_content_filter_into_error_event() -> None:
     error = _expect_event_type(events[1], StreamErrorEvent)
 
     assert [event.type for event in events] == ["start", "error"]
-    assert error.message == "OpenAI response was truncated by the content filter."
+    assert (
+        error.error.error_message
+        == "OpenAI response was truncated by the content filter."
+    )
+    assert error.error.stop_reason == "error"

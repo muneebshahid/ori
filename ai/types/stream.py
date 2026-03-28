@@ -46,6 +46,7 @@ class AssistantMessage(BaseModel):
     content: list[AssistantBlock] = Field(default_factory=list)
     response_id: str | None = None
     stop_reason: StopReason = "stop"
+    error_message: str | None = None
 
 
 class StreamStartEvent(BaseModel):
@@ -132,8 +133,7 @@ class StreamErrorEvent(BaseModel):
     """Marks failed stream completion with the latest partial assistant message."""
 
     type: Literal["error"]
-    message: str
-    partial: AssistantMessage | None = None
+    error: AssistantMessage
 
 
 StreamEvent = (
