@@ -33,6 +33,7 @@ from agent.types import (
     AgentEndEvent,
     AgentEvent,
     AgentStartEvent,
+    MessageEndEvent,
     MessageStartEvent,
     StreamFn,
     ToolExecutionEndEvent,
@@ -153,6 +154,7 @@ class Agent:
     ) -> AsyncIterator[AgentEvent]:
         message = _build_assistant_turn(event.message)
         self._history.append(message)
+        yield MessageEndEvent(message=message)
         tool_results: list[ToolResultTurn] = []
 
         for tool_call in _collect_tool_calls(event.message):
@@ -180,6 +182,7 @@ class Agent:
     ) -> AsyncIterator[AgentEvent]:
         message = _build_assistant_turn(event.error)
         self._history.append(message)
+        yield MessageEndEvent(message=message)
         yield TurnEndEvent(message=message, tool_results=[])
 
     async def _execute_tool(
