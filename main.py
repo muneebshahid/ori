@@ -7,9 +7,9 @@ from textual.widgets import Button, Digits, Footer, Header
 
 
 class TimeDisplay(Digits):
-    """A widget to display the elapsed time in the stopwatch."""
+    """A widget to display elapsed time."""
 
-    start_time = reactive(monotonic())
+    start_time = reactive(monotonic)
     time = reactive(0.0)
     total = reactive(0.0)
 
@@ -18,7 +18,7 @@ class TimeDisplay(Digits):
         self.update_timer = self.set_interval(1 / 60, self.update_time, pause=True)
 
     def update_time(self) -> None:
-        """Method to update the time to the current time."""
+        """Method to update time to current."""
         self.time = self.total + (monotonic() - self.start_time)
 
     def watch_time(self, time: float) -> None:
@@ -32,19 +32,21 @@ class TimeDisplay(Digits):
         self.start_time = monotonic()
         self.update_timer.resume()
 
-    def stop(self) -> None:
+    def stop(self):
         """Method to stop the time display updating."""
         self.update_timer.pause()
         self.total += monotonic() - self.start_time
         self.time = self.total
 
-    def reset(self) -> None:
+    def reset(self):
         """Method to reset the time display to zero."""
         self.total = 0
         self.time = 0
 
 
 class Stopwatch(HorizontalGroup):
+    """A stopwatch widget."""
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Event handler called when a button is pressed."""
         button_id = event.button.id
@@ -59,15 +61,18 @@ class Stopwatch(HorizontalGroup):
             time_display.reset()
 
     def compose(self) -> ComposeResult:
+        """Create child widgets of a stopwatch."""
         yield Button("Start", id="start", variant="success")
         yield Button("Stop", id="stop", variant="error")
-        yield Button("Reset", id="reset", variant="warning")
-        yield TimeDisplay("00:00:00", id="time_display")
+        yield Button("Reset", id="reset")
+        yield TimeDisplay()
 
 
 class StopwatchApp(App):
-    INITIAL_STOPWATCH_COUNT = 3
-    CSS_PATH = "stopwatch03.tcss"
+    """A Textual app to manage stopwatches."""
+
+    CSS_PATH = "stopwatch.tcss"
+
     BINDINGS = [
         ("d", "toggle_dark", "Toggle dark mode"),
         ("a", "add_stopwatch", "Add"),
@@ -75,15 +80,16 @@ class StopwatchApp(App):
     ]
 
     def compose(self) -> ComposeResult:
+        """Called to add widgets to the app."""
         yield Header()
         yield Footer()
-        yield self._compose_timers()
+        yield VerticalScroll(Stopwatch(), Stopwatch(), Stopwatch(), id="timers")
 
-    async def action_add_stopwatch(self) -> None:
+    def action_add_stopwatch(self) -> None:
         """An action to add a timer."""
         new_stopwatch = Stopwatch()
-        await self._timer_list().mount(new_stopwatch)
-        self.call_after_refresh(self._scroll_to_stopwatch, new_stopwatch)
+        self.query_one("#timers").mount(new_stopwatch)
+        new_stopwatch.scroll_visible()
 
     def action_remove_stopwatch(self) -> None:
         """Called to remove a timer."""
@@ -92,21 +98,10 @@ class StopwatchApp(App):
             timers.last().remove()
 
     def action_toggle_dark(self) -> None:
+        """An action to toggle dark mode."""
         self.theme = (
             "textual-dark" if self.theme == "textual-light" else "textual-light"
         )
-
-    def _compose_timers(self) -> VerticalScroll:
-        return VerticalScroll(
-            *(Stopwatch() for _ in range(self.INITIAL_STOPWATCH_COUNT)),
-            id="timers",
-        )
-
-    def _scroll_to_stopwatch(self, stopwatch: Stopwatch) -> None:
-        stopwatch.scroll_visible(animate=False, immediate=True)
-
-    def _timer_list(self) -> VerticalScroll:
-        return self.query_one("#timers", VerticalScroll)
 
 
 if __name__ == "__main__":
