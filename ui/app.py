@@ -35,8 +35,6 @@ class PiyApp(App[None]):
         self._clear_input()
 
     def compose(self) -> ComposeResult:
-        """Compose the MVP UI shell."""
-
         yield OutputSection(messages=self._output_messages)
         yield InputSection()
 
