@@ -84,15 +84,17 @@ class Agent:
     def history(self) -> Sequence[ConversationItem]:
         return tuple(self._history)
 
+    def add_user_message(self, text: str) -> None:
+        self._history.append(UserMessage(content=text))
+
     def replace_history(self, history: Sequence[ConversationItem]) -> None:
         self._history = list(history)
 
     def add_item(self, item: ConversationItem) -> None:
         self._history.append(item)
 
-    async def run(self, prompt: str) -> AsyncIterator[AgentEvent]:
+    async def run(self) -> AsyncIterator[AgentEvent]:
         yield AgentStartEvent()
-        self._history.append(UserMessage(content=prompt))
         async for event in self._run():
             yield event
         yield AgentEndEvent(items=self._history)
