@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from textual import events
 from textual.message import Message
 from textual.widgets import TextArea
