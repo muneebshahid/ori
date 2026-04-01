@@ -70,3 +70,24 @@ def test_pressing_enter_moves_input_text_into_output_history() -> None:
             assert input_area.text == ""
 
     asyncio.run(_run())
+
+
+def test_input_area_expands_for_wrapped_content() -> None:
+    async def _run() -> None:
+        app = PiyApp()
+
+        async with app.run_test(size=(40, 20)) as pilot:
+            input_area = app.query_one(InputTextArea)
+
+            await pilot.pause()
+            initial_height = input_area.size.height
+
+            input_area.load_text(
+                "This is a long prompt that should wrap and expand the input area "
+                "beyond a single line."
+            )
+            await pilot.pause()
+
+            assert input_area.size.height > initial_height
+
+    asyncio.run(_run())
