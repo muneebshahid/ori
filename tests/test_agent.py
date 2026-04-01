@@ -95,9 +95,9 @@ def _build_stream_fn(
     return _stream_fn
 
 
-def _collect_run_events(agent: Agent, prompt: str) -> list[AgentEvent]:
+def _collect_run_events(agent: Agent) -> list[AgentEvent]:
     async def _collect() -> list[AgentEvent]:
-        return [event async for event in agent.run(prompt)]
+        return [event async for event in agent.run()]
 
     return asyncio.run(_collect())
 
@@ -156,6 +156,16 @@ def _sample_tools() -> list[ToolDefinition]:
             },
         )
     ]
+
+
+def test_add_user_message_appends_user_turn_to_history() -> None:
+    agent = Agent(stream_fn=AsyncMock(), model="gpt-5.4")
+
+    agent.add_user_message("Hello, piy")
+
+    assert len(agent.history) == 1
+    user_message = _expect_user_message(agent.history[0])
+    assert user_message.content == "Hello, piy"
 
 
 def test_agent_run_yields_current_events_for_tool_use_loop() -> None:
@@ -264,8 +274,9 @@ def test_agent_run_yields_current_events_for_tool_use_loop() -> None:
     get_tool_mock = AsyncMock(return_value=tool)
     agent = Agent(stream_fn=stream_fn, model="gpt-5.4", tools=tools)
     agent._get_tool = get_tool_mock  # type: ignore[invalid-assignment]
+    agent.add_user_message("What is the weather in Munich?")
 
-    events = _collect_run_events(agent, prompt="What is the weather in Munich?")
+    events = _collect_run_events(agent)
 
     assert [event.type for event in events] == [
         "agent_start",
@@ -437,8 +448,9 @@ def test_agent_run_yields_error_turn_end_for_stream_error() -> None:
         invocations=invocations,
     )
     agent = Agent(stream_fn=stream_fn, model="gpt-5.4")
+    agent.add_user_message("Say hello")
 
-    events = _collect_run_events(agent, prompt="Say hello")
+    events = _collect_run_events(agent)
 
     assert [event.type for event in events] == [
         "agent_start",
