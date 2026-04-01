@@ -52,3 +52,21 @@ def test_clicking_output_does_not_move_focus_from_input() -> None:
             assert app.focused is app.query_one(InputTextArea)
 
     asyncio.run(_run())
+
+
+def test_pressing_enter_moves_input_text_into_output_history() -> None:
+    async def _run() -> None:
+        app = PiyApp()
+
+        async with app.run_test() as pilot:
+            input_area = app.query_one(InputTextArea)
+            output_area = app.query_one(OutputTextArea)
+
+            input_area.load_text("Hello, piy!")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert output_area.text == "Hello, piy!"
+            assert input_area.text == ""
+
+    asyncio.run(_run())
