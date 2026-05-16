@@ -13,7 +13,7 @@ from ai.openai.subscription_event_adapter import (
     SubscriptionEventPayload,
     normalize_subscription_events,
 )
-from ai.types.contracts import AsyncEventStream, Reasoning as AppReasoning
+from ai.types.contracts import AsyncEventStream, Reasoning
 from ai.types.conversation import ConversationItem
 from ai.types.tools import ToolDefinition
 
@@ -23,7 +23,7 @@ async def stream_api(
     model: str,
     *,
     instructions: str,
-    reasoning: AppReasoning | None = None,
+    reasoning: Reasoning | None = None,
     tools: Sequence[ToolDefinition] | None = None,
 ) -> AsyncEventStream:
     """Stream assistant events through the OpenAI SDK transport."""
@@ -44,7 +44,7 @@ async def stream_subscription(
     model: str,
     *,
     instructions: str,
-    reasoning: AppReasoning | None = None,
+    reasoning: Reasoning | None = None,
     tools: Sequence[ToolDefinition] | None = None,
     raw_stream: AsyncIterator[SubscriptionEventPayload] | None = None,
 ) -> AsyncEventStream:
