@@ -5,9 +5,12 @@ from dataclasses import dataclass
 from typing import TypeAlias, TypeVar, cast
 from unittest.mock import AsyncMock
 
+import pytest
+
 from ai.openai.response_events import ResponseEventType
 from ai.types.conversation import UserMessage
-from ai.openai.provider import stream
+from ai.openai.provider import stream_api, stream_subscription
+from ai.openai.subscription_event_adapter import SubscriptionEventPayload
 from ai.openai.serialization import serialize_history_items
 from ai.types.stream import (
     ReasoningDeltaEvent,
@@ -578,7 +581,7 @@ def _collect_events(
     tools: Sequence[ToolDefinition] | None = None,
 ) -> list[StreamEvent]:
     async def _collect() -> list[StreamEvent]:
-        event_stream = await stream(
+        event_stream = await stream_api(
             history=[UserMessage(content="hello")],
             model="gpt-5.4",
             reasoning={"effort": "medium"},
@@ -589,6 +592,16 @@ def _collect_events(
         return [event async for event in event_stream]
 
     return asyncio.run(_collect())
+
+
+def _subscription_raw_stream(
+    events: Sequence[SubscriptionEventPayload],
+) -> AsyncIterator[SubscriptionEventPayload]:
+    async def _iterate() -> AsyncIterator[SubscriptionEventPayload]:
+        for event in events:
+            yield event
+
+    return _iterate()
 
 
 def _sample_tools() -> list[ToolDefinition]:
@@ -1197,3 +1210,108 @@ def test_stream_maps_incomplete_content_filter_into_error_event() -> None:
         == "OpenAI response was truncated by the content filter."
     )
     assert error.error.stop_reason == "error"
+
+
+def test_stream_subscription_maps_raw_events_into_stream_events() -> None:
+    raw_events: list[SubscriptionEventPayload] = [
+        {
+            "type": "response.created",
+            "response": {"id": "resp_subscription"},
+        },
+        {
+            "type": "response.output_item.added",
+            "item": {
+                "id": "msg_subscription",
+                "type": "message",
+                "status": "in_progress",
+                "role": "assistant",
+                "content": [],
+            },
+        },
+        {
+            "type": "response.content_part.added",
+            "item_id": "msg_subscription",
+            "part": {
+                "type": "output_text",
+                "text": "",
+                "annotations": [],
+            },
+        },
+        {
+            "type": "response.output_text.delta",
+            "item_id": "msg_subscription",
+            "delta": "Hello from subscription",
+        },
+        {
+            "type": "response.output_item.done",
+            "item": {
+                "id": "msg_subscription",
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "Hello from subscription",
+                        "annotations": [],
+                    }
+                ],
+            },
+        },
+        {
+            "type": "response.completed",
+            "response": {
+                "id": "resp_subscription",
+                "status": "completed",
+                "output": [],
+            },
+        },
+    ]
+
+    async def _collect() -> list[StreamEvent]:
+        event_stream = await stream_subscription(
+            history=[UserMessage(content="hello")],
+            model="gpt-5.4",
+            reasoning={"effort": "medium"},
+            instructions="Follow the repo conventions.",
+            raw_stream=_subscription_raw_stream(raw_events),
+        )
+        return [event async for event in event_stream]
+
+    events = asyncio.run(_collect())
+    start = _expect_event_type(events[0], StreamStartEvent)
+    text_start = _expect_event_type(events[1], TextStartEvent)
+    text_delta = _expect_event_type(events[2], TextDeltaEvent)
+    text_end = _expect_event_type(events[3], TextEndEvent)
+    done = _expect_event_type(events[4], StreamDoneEvent)
+
+    assert [event.type for event in events] == [
+        "start",
+        "text_start",
+        "text_delta",
+        "text_end",
+        "done",
+    ]
+    assert start.partial.response_id == "resp_subscription"
+    assert text_start.partial is start.partial
+    assert text_delta.delta == "Hello from subscription"
+    assert (
+        _expect_text_block(text_end.partial.content[0]).text
+        == "Hello from subscription"
+    )
+    assert done.message.response_id == "resp_subscription"
+
+
+def test_stream_subscription_raises_until_transport_is_implemented() -> None:
+    async def _collect() -> None:
+        await stream_subscription(
+            history=[UserMessage(content="hello")],
+            model="gpt-5.4",
+            instructions="Follow the repo conventions.",
+        )
+
+    with pytest.raises(
+        NotImplementedError,
+        match="Subscription transport is not implemented yet.",
+    ):
+        asyncio.run(_collect())

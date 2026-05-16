@@ -13,7 +13,7 @@ from agent.types import (
     MessageStartEvent,
     MessageUpdateEvent,
 )
-from ai.openai.provider import stream
+from ai.openai.provider import stream_api
 from ai.types.stream import AssistantBlock, TextBlock, TextDeltaEvent, TextStartEvent
 from settings import settings
 from ui.textual_driver import PiyLinuxDriver
@@ -30,7 +30,7 @@ def create_agent() -> Agent:
     """Build the default agent used by the UI."""
 
     return Agent(
-        stream_fn=stream,
+        stream_fn=stream_api,
         model=settings.openai_model,
     )
 
