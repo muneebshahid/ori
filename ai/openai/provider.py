@@ -1,12 +1,13 @@
 """OpenAI provider entrypoints split by transport."""
 
 from collections.abc import AsyncIterator, Sequence
+from typing import TYPE_CHECKING, cast
 
 from openai import AsyncOpenAI
 from openai.types.responses.response_create_params import ResponseCreateParamsStreaming
 
 from ai.openai.client import create_client
-from ai.openai.request_params import build_stream_request_params
+from ai.openai.serialization import serialize_history_items, serialize_tools
 from ai.openai.sdk_event_adapter import normalize_sdk_events
 from ai.openai.stream_assembler import assemble_stream
 from ai.openai.subscription_event_adapter import (
@@ -16,6 +17,9 @@ from ai.openai.subscription_event_adapter import (
 from ai.types.contracts import AsyncEventStream, Reasoning
 from ai.types.conversation import ConversationItem
 from ai.types.tools import ToolDefinition
+
+if TYPE_CHECKING:
+    from openai.types.shared_params.reasoning import Reasoning as OpenAIReasoning
 
 
 async def stream_api(
@@ -28,7 +32,7 @@ async def stream_api(
 ) -> AsyncEventStream:
     """Stream assistant events through the OpenAI SDK transport."""
 
-    request_params = build_stream_request_params(
+    request_params = _build_stream_request_params(
         history,
         model,
         instructions=instructions,
@@ -50,7 +54,7 @@ async def stream_subscription(
 ) -> AsyncEventStream:
     """Stream assistant events through the subscription SSE transport."""
 
-    request_params = build_stream_request_params(
+    request_params = _build_stream_request_params(
         history,
         model,
         instructions=instructions,
@@ -88,3 +92,25 @@ async def _create_subscription_stream(
     if raw_stream is None:
         raise NotImplementedError("Subscription transport is not implemented yet.")
     return raw_stream
+
+
+def _build_stream_request_params(
+    history: Sequence[ConversationItem],
+    model: str,
+    *,
+    instructions: str,
+    reasoning: Reasoning | None = None,
+    tools: Sequence[ToolDefinition] | None = None,
+) -> ResponseCreateParamsStreaming:
+    """Build the shared Responses API request payload for stream transports."""
+
+    request_params: ResponseCreateParamsStreaming = {
+        "model": model,
+        "input": serialize_history_items(history),
+        "reasoning": cast("OpenAIReasoning | None", reasoning),
+        "instructions": instructions,
+        "stream": True,
+    }
+    if tools:
+        request_params["tools"] = serialize_tools(tools)
+    return request_params
