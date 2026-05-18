@@ -14,6 +14,7 @@ from openai.types.responses import (
     ResponseIncompleteEvent,
     ResponseOutputItemAddedEvent,
     ResponseOutputItemDoneEvent,
+    ResponseReasoningTextDeltaEvent,
     ResponseReasoningSummaryPartDoneEvent,
     ResponseReasoningSummaryTextDeltaEvent,
     ResponseRefusalDeltaEvent,
@@ -62,10 +63,13 @@ def _normalize_sdk_event(event: object) -> NormalizedEvent | None:
                 "type": NormalizedEventType.REASONING_ADDED,
                 "item_id": event.item.id,
             }
-        case ResponseReasoningSummaryTextDeltaEvent():
+        case (
+            ResponseReasoningSummaryTextDeltaEvent(delta=delta)
+            | ResponseReasoningTextDeltaEvent(delta=delta)
+        ):
             return {
                 "type": NormalizedEventType.REASONING_DELTA,
-                "delta": event.delta,
+                "delta": delta,
             }
         case ResponseReasoningSummaryPartDoneEvent():
             return {

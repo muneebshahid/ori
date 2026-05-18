@@ -17,6 +17,7 @@ from openai.types.responses import (
     ResponseIncompleteEvent,
     ResponseOutputItemAddedEvent,
     ResponseOutputItemDoneEvent,
+    ResponseReasoningTextDeltaEvent,
     ResponseReasoningSummaryPartAddedEvent,
     ResponseReasoningSummaryPartDoneEvent,
     ResponseReasoningSummaryTextDeltaEvent,
@@ -152,9 +153,22 @@ def _build_reasoning_cases() -> list[NormalizationCase]:
             },
         ),
         NormalizationCase(
+            name="response.reasoning_text.delta",
+            raw_event=_reasoning_text_delta_raw_event(
+                sequence_number=8,
+                item_id="rs_delta",
+                content_index=0,
+                delta="Thinking with text...",
+            ),
+            expected_event={
+                "type": NormalizedEventType.REASONING_DELTA,
+                "delta": "Thinking with text...",
+            },
+        ),
+        NormalizationCase(
             name="response.reasoning_summary_part.done",
             raw_event=_reasoning_part_done_raw_event(
-                sequence_number=8,
+                sequence_number=9,
                 item_id="rs_done_part",
                 summary_index=0,
                 text="A step",
@@ -572,6 +586,27 @@ def _reasoning_delta_raw_event(
             "item_id": item_id,
             "output_index": 0,
             "summary_index": summary_index,
+            "delta": delta,
+        }
+    )
+
+
+def _reasoning_text_delta_raw_event(
+    *,
+    sequence_number: int,
+    item_id: str,
+    content_index: int,
+    delta: str,
+) -> ResponseReasoningTextDeltaEvent:
+    """Builds a raw reasoning-text delta event."""
+
+    return ResponseReasoningTextDeltaEvent.model_validate(
+        {
+            "type": "response.reasoning_text.delta",
+            "sequence_number": sequence_number,
+            "item_id": item_id,
+            "output_index": 0,
+            "content_index": content_index,
             "delta": delta,
         }
     )

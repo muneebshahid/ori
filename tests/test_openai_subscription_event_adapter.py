@@ -37,6 +37,11 @@ def test_normalize_subscription_events_maps_reasoning_message_and_done_payloads(
                 "delta": "Exploring traces",
             },
             {
+                "type": "response.reasoning_text.delta",
+                "item_id": "rs_123",
+                "delta": " with text",
+            },
+            {
                 "type": "response.output_item.done",
                 "item": {
                     "id": "rs_123",
@@ -113,6 +118,10 @@ def test_normalize_subscription_events_maps_reasoning_message_and_done_payloads(
         {
             "type": NormalizedEventType.REASONING_DELTA,
             "delta": "Exploring traces",
+        },
+        {
+            "type": NormalizedEventType.REASONING_DELTA,
+            "delta": " with text",
         },
         {
             "type": NormalizedEventType.REASONING_DONE,

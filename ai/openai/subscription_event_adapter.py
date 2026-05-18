@@ -39,7 +39,7 @@ def _normalize_subscription_event(
             return _normalize_created_event(event)
         case "response.output_item.added":
             return _normalize_output_item_added_event(event)
-        case "response.reasoning_summary_text.delta":
+        case "response.reasoning_summary_text.delta" | "response.reasoning_text.delta":
             return _normalize_reasoning_summary_delta_event(event)
         case "response.reasoning_summary_part.done":
             return _normalize_reasoning_summary_part_done_event()
