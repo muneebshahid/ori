@@ -20,6 +20,70 @@ def test_grep_schema_requires_only_pattern() -> None:
     assert grep.input_schema["required"] == ["pattern"]
 
 
+def test_build_ripgrep_args_uses_default_search_flags() -> None:
+    """Build the default ripgrep argv for machine-readable search output."""
+
+    assert grep_tool._build_ripgrep_args(
+        pattern="needle",
+        path=".",
+        glob=None,
+        ignore_case=False,
+        literal=False,
+        context=0,
+        limit=100,
+    ) == [
+        "--json",
+        "--line-number",
+        "--color=never",
+        "--hidden",
+        "--",
+        "needle",
+        ".",
+    ]
+
+
+def test_build_ripgrep_args_adds_optional_search_flags() -> None:
+    """Build ripgrep argv from optional search controls."""
+
+    assert grep_tool._build_ripgrep_args(
+        pattern="needle",
+        path="src",
+        glob="**/*.py",
+        ignore_case=True,
+        literal=True,
+        context=2,
+        limit=25,
+    ) == [
+        "--json",
+        "--line-number",
+        "--color=never",
+        "--hidden",
+        "--ignore-case",
+        "--fixed-strings",
+        "--glob",
+        "**/*.py",
+        "--context",
+        "2",
+        "--",
+        "needle",
+        "src",
+    ]
+
+
+def test_build_ripgrep_args_protects_flag_like_patterns() -> None:
+    """Place -- before the pattern so flag-like patterns stay search text."""
+
+    assert grep_tool._build_ripgrep_args(
+        pattern="--pre=payload",
+        path=".",
+        glob=None,
+        ignore_case=False,
+        literal=True,
+        context=0,
+        limit=100,
+    )[-3:] == ["--", "--pre=payload", "."]
+
+
 @pytest.mark.asyncio
 async def test_grep_fn_prefers_ripgrep_when_available(
     monkeypatch: pytest.MonkeyPatch,

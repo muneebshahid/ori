@@ -38,8 +38,35 @@ async def _run_ripgrep(
 ) -> None:
     """Run the future ripgrep-backed search implementation."""
 
-    _ = (pattern, path, glob, ignore_case, literal, context, limit)
+    _ = _build_ripgrep_args(pattern, path, glob, ignore_case, literal, context, limit)
     pass
+
+
+def _build_ripgrep_args(
+    pattern: str,
+    path: str,
+    glob: str | None,
+    ignore_case: bool,
+    literal: bool,
+    context: int,
+    limit: int,
+) -> list[str]:
+    """Build command arguments for a ripgrep search."""
+
+    args = ["--json", "--line-number", "--color=never", "--hidden"]
+
+    if ignore_case:
+        args.append("--ignore-case")
+    if literal:
+        args.append("--fixed-strings")
+    if glob:
+        args.extend(["--glob", glob])
+    if context > 0:
+        args.extend(["--context", str(context)])
+
+    _ = limit
+    args.extend(["--", pattern, path])
+    return args
 
 
 async def _run_grep(
