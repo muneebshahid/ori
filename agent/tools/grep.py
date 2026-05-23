@@ -1,5 +1,7 @@
 """Search tool scaffold for the default agent."""
 
+import shutil
+
 from ai.types.tools import ToolDefinition
 
 
@@ -14,6 +16,44 @@ async def fn(
 ) -> None:
     """Search file contents for a pattern."""
 
+    if shutil.which("rg") is not None:
+        await _run_ripgrep(pattern, path, glob, ignore_case, literal, context, limit)
+        return
+
+    if shutil.which("grep") is not None:
+        await _run_grep(pattern, path, glob, ignore_case, literal, context, limit)
+        return
+
+    raise RuntimeError("Neither ripgrep (rg) nor grep is available.")
+
+
+async def _run_ripgrep(
+    pattern: str,
+    path: str,
+    glob: str | None,
+    ignore_case: bool,
+    literal: bool,
+    context: int,
+    limit: int,
+) -> None:
+    """Run the future ripgrep-backed search implementation."""
+
+    _ = (pattern, path, glob, ignore_case, literal, context, limit)
+    pass
+
+
+async def _run_grep(
+    pattern: str,
+    path: str,
+    glob: str | None,
+    ignore_case: bool,
+    literal: bool,
+    context: int,
+    limit: int,
+) -> None:
+    """Run the future grep-backed search implementation."""
+
+    _ = (pattern, path, glob, ignore_case, literal, context, limit)
     pass
 
 
