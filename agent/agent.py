@@ -165,11 +165,6 @@ class Agent:
         tool_results: list[ToolResultTurn] = []
 
         for tool_call in _collect_tool_calls(event.message):
-            yield ToolExecutionStartEvent(
-                call_id=tool_call.call_id,
-                tool_name=tool_call.name,
-                arguments=tool_call.arguments,
-            )
             async for agent_event in self._execute_tool(
                 call_id=tool_call.call_id,
                 tool_name=tool_call.name,
@@ -214,6 +209,12 @@ class Agent:
         tool_name: str,
         arguments: JsonObject,
     ) -> AsyncIterator[AgentEvent]:
+        yield ToolExecutionStartEvent(
+            call_id=call_id,
+            tool_name=tool_name,
+            arguments=arguments,
+        )
+
         result: JsonValue = None
         try:
             tool = await self._get_tool(tool_name)
