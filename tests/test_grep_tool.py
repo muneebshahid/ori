@@ -83,36 +83,28 @@ def test_build_args_protects_flag_like_patterns() -> None:
 async def test_fn_returns_results_when_command_is_available(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Return serialized parsed results when rg exists."""
+    """Return compact grep-style text when rg exists."""
 
     monkeypatch.setattr(grep.shutil, "which", _find_command)
     monkeypatch.setattr(grep, "_execute", _fake_execution)
 
-    result = grep.Results.model_validate_json(await grep.fn(pattern="needle"))
+    result = await grep.fn(pattern="needle")
 
-    assert result.match_count == 1
-    assert result.lines[0].path == "example.txt"
-    assert result.lines[0].line_number == 2
-    assert result.lines[0].text == "needle line"
+    assert result == "example.txt:2: needle line"
 
 
 @pytest.mark.asyncio
 async def test_fn_returns_multiple_result_lines(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Return serialized results for multiple command output lines."""
+    """Return compact grep-style text for multiple command output lines."""
 
     monkeypatch.setattr(grep.shutil, "which", _find_command)
     monkeypatch.setattr(grep, "_execute", _fake_multi_line_execution)
 
-    result = grep.Results.model_validate_json(await grep.fn(pattern="needle"))
+    result = await grep.fn(pattern="needle")
 
-    assert result.match_count == 2
-    assert result.truncated is False
-    assert [(line.path, line.line_number, line.text) for line in result.lines] == [
-        ("one.txt", 1, "needle one"),
-        ("two.txt", 2, "needle two"),
-    ]
+    assert result == "one.txt:1: needle one\ntwo.txt:2: needle two"
 
 
 @pytest.mark.asyncio
@@ -226,6 +218,71 @@ def test_parse_output_ignores_non_search_events() -> None:
 
     assert result.match_count == 1
     assert [line.text for line in result.lines] == ["needle"]
+
+
+def test_format_results_returns_plain_text() -> None:
+    """Format parsed search results using grep-style separators."""
+
+    result = grep._format_results(
+        grep.Results(
+            lines=[
+                grep.Line(
+                    kind="context",
+                    path="example.txt",
+                    line_number=1,
+                    text="before",
+                ),
+                grep.Line(
+                    kind="match",
+                    path="example.txt",
+                    line_number=2,
+                    text="needle line",
+                ),
+                grep.Line(
+                    kind="context",
+                    path="example.txt",
+                    line_number=3,
+                    text="after",
+                ),
+            ],
+            match_count=1,
+            truncated=False,
+        ),
+        limit=100,
+    )
+
+    assert result == "\n".join(
+        [
+            "example.txt-1- before",
+            "example.txt:2: needle line",
+            "example.txt-3- after",
+        ]
+    )
+
+
+def test_format_results_reports_truncation() -> None:
+    """Append a compact truncation note when matches exceed the limit."""
+
+    result = grep._format_results(
+        grep.Results(
+            lines=[
+                grep.Line(
+                    kind="match",
+                    path="example.txt",
+                    line_number=1,
+                    text="first",
+                )
+            ],
+            match_count=1,
+            truncated=True,
+        ),
+        limit=1,
+    )
+
+    assert result == (
+        "example.txt:1: first\n\n"
+        "[1 matches limit reached. Use limit=2 for more, or refine pattern]"
+    )
 
 
 def _find_command(command: str) -> str | None:

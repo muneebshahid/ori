@@ -66,7 +66,7 @@ async def fn(
     args = _build_args(pattern, path, glob, ignore_case, literal, context, limit)
     output = await _execute(executable, args)
     results = _parse_output(output, limit)
-    return results.model_dump_json()
+    return _format_results(results, limit)
 
 
 async def _execute(
@@ -109,6 +109,25 @@ def _parse_output(output: str, limit: int) -> Results:
         lines.append(parsed_line)
 
     return Results(lines=lines, match_count=match_count, truncated=truncated)
+
+
+def _format_results(results: Results, limit: int) -> str:
+    """Format structured search results as compact grep-style text."""
+
+    if not results.lines:
+        return "No matches found"
+
+    formatted_lines = [_format_line(line) for line in results.lines]
+    output = "\n".join(formatted_lines)
+
+    if results.truncated:
+        effective_limit = max(1, limit)
+        output += (
+            f"\n\n[{effective_limit} matches limit reached. "
+            f"Use limit={effective_limit * 2} for more, or refine pattern]"
+        )
+
+    return output
 
 
 def _build_args(
@@ -158,6 +177,14 @@ def _build_line(event: SearchEvent) -> Line:
         line_number=event.data.line_number,
         text=event.data.lines.text.rstrip("\n"),
     )
+
+
+def _format_line(line: Line) -> str:
+    """Format one search line using grep's match or context separators."""
+
+    if line.kind == "match":
+        return f"{line.path}:{line.line_number}: {line.text}"
+    return f"{line.path}-{line.line_number}- {line.text}"
 
 
 tool = ToolDefinition(
