@@ -4,13 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from agent.tools.ls import fn, ls
+import agent.tools.ls as ls
 
 
 def test_ls_schema_requires_only_path() -> None:
     """Require only path so callers can omit optional limit."""
 
-    assert ls.input_schema["required"] == ["path"]
+    assert ls.tool.input_schema["required"] == ["path"]
 
 
 @pytest.mark.asyncio
@@ -21,7 +21,7 @@ async def test_ls_returns_all_directory_entries(tmp_path: Path) -> None:
     _create_file(tmp_path / "uv.lock")
     _create_directory(tmp_path / "src")
 
-    result = await fn(path=str(tmp_path), limit=10)
+    result = await ls.fn(path=str(tmp_path), limit=10)
 
     assert result.splitlines() == ["README.md", "src/", "uv.lock"]
 
@@ -34,7 +34,7 @@ async def test_ls_respects_limit_after_sorting_entries(tmp_path: Path) -> None:
     _create_file(tmp_path / "a.txt")
     _create_file(tmp_path / "c.txt")
 
-    result = await fn(path=str(tmp_path), limit=2)
+    result = await ls.fn(path=str(tmp_path), limit=2)
 
     assert result.splitlines() == [
         "a.txt",
@@ -51,7 +51,7 @@ async def test_ls_appends_slash_to_directories(tmp_path: Path) -> None:
     _create_file(tmp_path / "file.txt")
     _create_directory(tmp_path / "folder")
 
-    result = await fn(path=str(tmp_path), limit=10)
+    result = await ls.fn(path=str(tmp_path), limit=10)
 
     assert result.splitlines() == ["file.txt", "folder/"]
 
@@ -63,7 +63,7 @@ async def test_ls_includes_dotfiles_and_dot_directories(tmp_path: Path) -> None:
     _create_file(tmp_path / ".hidden-file")
     _create_directory(tmp_path / ".hidden-dir")
 
-    result = await fn(path=str(tmp_path), limit=10)
+    result = await ls.fn(path=str(tmp_path), limit=10)
 
     assert result.splitlines() == [".hidden-dir/", ".hidden-file"]
 
@@ -76,7 +76,7 @@ async def test_ls_sorts_entries_case_insensitively(tmp_path: Path) -> None:
     _create_file(tmp_path / "Alpha.txt")
     _create_file(tmp_path / "charlie.txt")
 
-    result = await fn(path=str(tmp_path), limit=10)
+    result = await ls.fn(path=str(tmp_path), limit=10)
 
     assert result.splitlines() == ["Alpha.txt", "beta.txt", "charlie.txt"]
 
@@ -85,7 +85,7 @@ async def test_ls_sorts_entries_case_insensitively(tmp_path: Path) -> None:
 async def test_ls_reports_empty_directory(tmp_path: Path) -> None:
     """Return an explicit marker for empty directories."""
 
-    result = await fn(path=str(tmp_path), limit=10)
+    result = await ls.fn(path=str(tmp_path), limit=10)
 
     assert result == "(empty directory)"
 

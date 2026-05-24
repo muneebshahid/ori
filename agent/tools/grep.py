@@ -1,8 +1,51 @@
 """Search tool scaffold for the default agent."""
 
+import asyncio
 import shutil
+from collections.abc import Sequence
+from typing import Literal
+
+from pydantic import BaseModel, ValidationError
 
 from ai.types.tools import ToolDefinition
+
+
+class Line(BaseModel):
+    """One parsed search output line."""
+
+    kind: Literal["match", "context"]
+    path: str
+    line_number: int
+    text: str
+
+
+class Results(BaseModel):
+    """Structured search results returned by the search tool."""
+
+    lines: list[Line]
+    match_count: int
+    truncated: bool
+
+
+class TextValue(BaseModel):
+    """Text wrapper used by JSON event fields."""
+
+    text: str
+
+
+class EventData(BaseModel):
+    """Event data fields used by the search tool."""
+
+    path: TextValue
+    line_number: int
+    lines: TextValue
+
+
+class SearchEvent(BaseModel):
+    """Match or context event shape used by the search tool."""
+
+    type: Literal["match", "context"]
+    data: EventData
 
 
 async def fn(
@@ -13,17 +56,62 @@ async def fn(
     literal: bool = False,
     context: int = 0,
     limit: int = 100,
-) -> None:
+) -> str:
     """Search file contents for a pattern."""
 
-    if shutil.which("rg") is None:
+    executable = shutil.which("rg")
+    if executable is None:
         raise RuntimeError("ripgrep (rg) is not available.")
 
-    _ = _build_ripgrep_args(pattern, path, glob, ignore_case, literal, context, limit)
-    pass
+    args = _build_args(pattern, path, glob, ignore_case, literal, context, limit)
+    output = await _execute(executable, args)
+    results = _parse_output(output, limit)
+    return results.model_dump_json()
 
 
-def _build_ripgrep_args(
+async def _execute(
+    executable: str,
+    args: Sequence[str],
+) -> str:
+    """Run the search command asynchronously and return captured stdout."""
+
+    process = await asyncio.create_subprocess_exec(
+        executable,
+        *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout_bytes, stderr_bytes = await process.communicate()
+    exit_code = process.returncode or 0
+    if exit_code not in (0, 1):
+        error = stderr_bytes.decode().strip() or f"search exited with code {exit_code}"
+        raise RuntimeError(error)
+    return stdout_bytes.decode()
+
+
+def _parse_output(output: str, limit: int) -> Results:
+    """Parse JSON-lines output into structured search results."""
+
+    effective_limit = max(1, limit)
+    lines: list[Line] = []
+    match_count = 0
+    truncated = False
+
+    for raw_line in output.splitlines():
+        parsed_line = _parse_line(raw_line)
+        if parsed_line is None:
+            continue
+        if parsed_line.kind == "match":
+            if match_count >= effective_limit:
+                truncated = True
+                break
+            match_count += 1
+        lines.append(parsed_line)
+
+    return Results(lines=lines, match_count=match_count, truncated=truncated)
+
+
+def _build_args(
     pattern: str,
     path: str,
     glob: str | None,
@@ -32,7 +120,7 @@ def _build_ripgrep_args(
     context: int,
     limit: int,
 ) -> list[str]:
-    """Build command arguments for a ripgrep search."""
+    """Build command arguments for a search."""
 
     args = ["--json", "--line-number", "--color=never", "--hidden"]
 
@@ -50,7 +138,29 @@ def _build_ripgrep_args(
     return args
 
 
-grep = ToolDefinition(
+def _parse_line(raw_line: str) -> Line | None:
+    """Parse a single JSON event line."""
+
+    try:
+        event = SearchEvent.model_validate_json(raw_line)
+    except ValidationError:
+        return None
+
+    return _build_line(event)
+
+
+def _build_line(event: SearchEvent) -> Line:
+    """Build one search line from event data."""
+
+    return Line(
+        kind=event.type,
+        path=event.data.path.text,
+        line_number=event.data.line_number,
+        text=event.data.lines.text.rstrip("\n"),
+    )
+
+
+tool = ToolDefinition(
     name="grep",
     description="Search file contents for a pattern.",
     input_schema={

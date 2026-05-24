@@ -42,7 +42,7 @@ def _format_directory_entry(entry: Path) -> str:
     return entry.name
 
 
-ls = ToolDefinition(
+tool = ToolDefinition(
     name="ls",
     description="List the contents of a directory.",
     input_schema={

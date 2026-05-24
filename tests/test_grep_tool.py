@@ -1,21 +1,24 @@
 """Tests for the default search tool scaffold."""
 
+import json
+import sys
+from collections.abc import Sequence
+from typing import Literal
+
 import pytest
-
-import agent.tools.grep as grep_tool
-from agent.tools.grep import grep
+import agent.tools.grep as grep
 
 
-def test_grep_schema_requires_only_pattern() -> None:
+def test_schema_requires_only_pattern() -> None:
     """Require only the search pattern so callers can omit optional controls."""
 
-    assert grep.input_schema["required"] == ["pattern"]
+    assert grep.tool.input_schema["required"] == ["pattern"]
 
 
-def test_build_ripgrep_args_uses_default_search_flags() -> None:
-    """Build the default ripgrep argv for machine-readable search output."""
+def test_build_args_uses_default_search_flags() -> None:
+    """Build the default argv for machine-readable search output."""
 
-    assert grep_tool._build_ripgrep_args(
+    assert grep._build_args(
         pattern="needle",
         path=".",
         glob=None,
@@ -34,10 +37,10 @@ def test_build_ripgrep_args_uses_default_search_flags() -> None:
     ]
 
 
-def test_build_ripgrep_args_adds_optional_search_flags() -> None:
-    """Build ripgrep argv from optional search controls."""
+def test_build_args_adds_optional_search_flags() -> None:
+    """Build argv from optional search controls."""
 
-    assert grep_tool._build_ripgrep_args(
+    assert grep._build_args(
         pattern="needle",
         path="src",
         glob="**/*.py",
@@ -62,10 +65,10 @@ def test_build_ripgrep_args_adds_optional_search_flags() -> None:
     ]
 
 
-def test_build_ripgrep_args_protects_flag_like_patterns() -> None:
+def test_build_args_protects_flag_like_patterns() -> None:
     """Place -- before the pattern so flag-like patterns stay search text."""
 
-    assert grep_tool._build_ripgrep_args(
+    assert grep._build_args(
         pattern="--pre=payload",
         path=".",
         glob=None,
@@ -77,38 +80,209 @@ def test_build_ripgrep_args_protects_flag_like_patterns() -> None:
 
 
 @pytest.mark.asyncio
-async def test_grep_fn_builds_ripgrep_args_when_available(
+async def test_fn_returns_results_when_command_is_available(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Reach the current no-op execution path when rg exists."""
+    """Return serialized parsed results when rg exists."""
 
-    monkeypatch.setattr(grep_tool.shutil, "which", _find_ripgrep_only)
+    monkeypatch.setattr(grep.shutil, "which", _find_command)
+    monkeypatch.setattr(grep, "_execute", _fake_execution)
 
-    assert await grep_tool.fn(pattern="needle") is None
+    result = grep.Results.model_validate_json(await grep.fn(pattern="needle"))
+
+    assert result.match_count == 1
+    assert result.lines[0].path == "example.txt"
+    assert result.lines[0].line_number == 2
+    assert result.lines[0].text == "needle line"
 
 
 @pytest.mark.asyncio
-async def test_grep_fn_raises_when_ripgrep_is_missing(
+async def test_fn_returns_multiple_result_lines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Return serialized results for multiple command output lines."""
+
+    monkeypatch.setattr(grep.shutil, "which", _find_command)
+    monkeypatch.setattr(grep, "_execute", _fake_multi_line_execution)
+
+    result = grep.Results.model_validate_json(await grep.fn(pattern="needle"))
+
+    assert result.match_count == 2
+    assert result.truncated is False
+    assert [(line.path, line.line_number, line.text) for line in result.lines] == [
+        ("one.txt", 1, "needle one"),
+        ("two.txt", 2, "needle two"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_fn_raises_when_command_is_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Raise a clear exception when rg is unavailable."""
 
-    monkeypatch.setattr(grep_tool.shutil, "which", _find_no_executables)
+    monkeypatch.setattr(grep.shutil, "which", _find_no_commands)
 
     with pytest.raises(RuntimeError, match="ripgrep"):
-        await grep_tool.fn(pattern="needle")
+        await grep.fn(pattern="needle")
 
 
-def _find_ripgrep_only(command: str) -> str | None:
-    """Return an rg path only for ripgrep availability checks."""
+@pytest.mark.asyncio
+async def test_execute_returns_process_result() -> None:
+    """Return captured stdout from a process."""
+
+    result = await grep._execute(
+        sys.executable,
+        ["-c", "print('out')"],
+    )
+
+    assert result == "out\n"
+
+
+@pytest.mark.asyncio
+async def test_execute_raises_on_search_error() -> None:
+    """Raise when the search process exits with an error code."""
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await grep._execute(
+            sys.executable,
+            ["-c", "import sys; print('boom', file=sys.stderr); sys.exit(2)"],
+        )
+
+
+def test_parse_output_returns_pydantic_results() -> None:
+    """Parse match and context events from JSON-lines output."""
+
+    result = grep._parse_output(
+        "\n".join(
+            [
+                _event("context", "example.txt", 1, "before\n"),
+                _event("match", "example.txt", 2, "needle line\n"),
+                _event("context", "example.txt", 3, "after\n"),
+            ]
+        ),
+        limit=100,
+    )
+
+    assert result == grep.Results(
+        lines=[
+            grep.Line(
+                kind="context",
+                path="example.txt",
+                line_number=1,
+                text="before",
+            ),
+            grep.Line(
+                kind="match",
+                path="example.txt",
+                line_number=2,
+                text="needle line",
+            ),
+            grep.Line(
+                kind="context",
+                path="example.txt",
+                line_number=3,
+                text="after",
+            ),
+        ],
+        match_count=1,
+        truncated=False,
+    )
+
+
+def test_parse_output_marks_truncated_after_limit() -> None:
+    """Stop parsing once the global match limit is reached."""
+
+    result = grep._parse_output(
+        "\n".join(
+            [
+                _event("match", "example.txt", 1, "first\n"),
+                _event("match", "example.txt", 2, "second\n"),
+            ]
+        ),
+        limit=1,
+    )
+
+    assert result.match_count == 1
+    assert result.truncated is True
+    assert [line.text for line in result.lines] == ["first"]
+
+
+def test_parse_output_ignores_non_search_events() -> None:
+    """Ignore events that are not match or context rows."""
+
+    result = grep._parse_output(
+        "\n".join(
+            [
+                json.dumps(
+                    {"type": "begin", "data": {"path": {"text": "example.txt"}}}
+                ),
+                _event("match", "example.txt", 1, "needle\n"),
+                json.dumps({"type": "summary", "data": {"elapsed_total": {"secs": 1}}}),
+            ]
+        ),
+        limit=100,
+    )
+
+    assert result.match_count == 1
+    assert [line.text for line in result.lines] == ["needle"]
+
+
+def _find_command(command: str) -> str | None:
+    """Return a path only for search command availability checks."""
 
     if command == "rg":
         return "/usr/bin/rg"
     return None
 
 
-def _find_no_executables(command: str) -> None:
-    """Return no executable path for all availability checks."""
+def _find_no_commands(command: str) -> None:
+    """Return no command path for all availability checks."""
 
     _ = command
     return None
+
+
+async def _fake_execution(
+    executable: str,
+    args: Sequence[str],
+) -> str:
+    """Return representative command output for fn tests."""
+
+    _ = (executable, args)
+    return _event("match", "example.txt", 2, "needle line\n")
+
+
+async def _fake_multi_line_execution(
+    executable: str,
+    args: Sequence[str],
+) -> str:
+    """Return multiple representative command output lines for fn tests."""
+
+    _ = (executable, args)
+    return "\n".join(
+        [
+            _event("match", "one.txt", 1, "needle one\n"),
+            _event("match", "two.txt", 2, "needle two\n"),
+        ]
+    )
+
+
+def _event(
+    event_type: Literal["match", "context"],
+    path: str,
+    line_number: int,
+    text: str,
+) -> str:
+    """Build one JSON event line for parser tests."""
+
+    return json.dumps(
+        {
+            "type": event_type,
+            "data": {
+                "path": {"text": path},
+                "line_number": line_number,
+                "lines": {"text": text},
+            },
+        }
+    )
