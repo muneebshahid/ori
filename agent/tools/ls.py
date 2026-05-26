@@ -9,20 +9,15 @@ from ai.types.tools import ToolDefinition
 async def fn(path: str = ".", limit: int = 500) -> str:
     """List the contents of a directory."""
 
-    try:
-        entries = await asyncio.to_thread(_list_directory_entries, path)
-        limited_entries = entries[:limit]
-        if not limited_entries:
-            return "(empty directory)"
+    entries = await asyncio.to_thread(_list_directory_entries, path)
+    limited_entries = entries[:limit]
+    if not limited_entries:
+        return "(empty directory)"
 
-        result = "\n".join(limited_entries)
-        if len(entries) > limit:
-            result += (
-                f"\n\n[{limit} entries limit reached. Use limit={limit * 2} for more]"
-            )
-        return result
-    except Exception as e:
-        return f"Error: {str(e)}"
+    result = "\n".join(limited_entries)
+    if len(entries) > limit:
+        result += f"\n\n[{limit} entries limit reached. Use limit={limit * 2} for more]"
+    return result
 
 
 def _list_directory_entries(path: str) -> list[str]:

@@ -90,6 +90,25 @@ async def test_ls_reports_empty_directory(tmp_path: Path) -> None:
     assert result == "(empty directory)"
 
 
+@pytest.mark.asyncio
+async def test_ls_raises_when_path_does_not_exist(tmp_path: Path) -> None:
+    """Raise filesystem errors so the agent can mark tool execution as failed."""
+
+    with pytest.raises(FileNotFoundError):
+        await ls.fn(path=str(tmp_path / "missing"), limit=10)
+
+
+@pytest.mark.asyncio
+async def test_ls_raises_when_path_is_not_directory(tmp_path: Path) -> None:
+    """Raise when callers pass a file instead of a directory."""
+
+    file_path = tmp_path / "file.txt"
+    _create_file(file_path)
+
+    with pytest.raises(NotADirectoryError):
+        await ls.fn(path=str(file_path), limit=10)
+
+
 def _create_file(path: Path) -> None:
     """Create a small test file."""
 
