@@ -1,0 +1,42 @@
+"""Shared truncation helpers for built-in tool output."""
+
+# Maximum UTF-8 bytes to keep before appending a truncation notice.
+OUTPUT_BYTE_LIMIT: int = 50 * 1024
+# Human-readable label for the shared output byte limit.
+OUTPUT_BYTE_LIMIT_LABEL: str = "50.0KB"
+# Maximum characters to keep from one grep result text line.
+GREP_LINE_CHARACTER_LIMIT: int = 500
+
+
+def truncate_to_byte_limit(
+    text: str,
+    byte_limit: int = OUTPUT_BYTE_LIMIT,
+) -> tuple[str, bool]:
+    """Return text capped to complete lines within the UTF-8 byte limit."""
+
+    if len(text.encode("utf-8")) <= byte_limit:
+        return text, False
+
+    output_lines: list[str] = []
+    output_bytes = 0
+    for line in text.split("\n"):
+        separator_bytes = 1 if output_lines else 0
+        line_bytes = len(line.encode("utf-8"))
+        if output_bytes + separator_bytes + line_bytes > byte_limit:
+            break
+
+        output_lines.append(line)
+        output_bytes += separator_bytes + line_bytes
+
+    return "\n".join(output_lines), True
+
+
+def truncate_line(
+    line: str,
+    character_limit: int = GREP_LINE_CHARACTER_LIMIT,
+) -> tuple[str, bool]:
+    """Return one line capped to a character limit with a truncation marker."""
+
+    if len(line) <= character_limit:
+        return line, False
+    return f"{line[:character_limit]}... [truncated]", True

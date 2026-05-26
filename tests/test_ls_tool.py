@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 import agent.tools.ls as ls
+import agent.tools.truncation as truncation
 
 
 def test_ls_schema_requires_only_path() -> None:
@@ -44,19 +45,6 @@ async def test_ls_respects_limit_after_sorting_entries(tmp_path: Path) -> None:
     ]
 
 
-def test_truncate_to_byte_limit_keeps_complete_lines() -> None:
-    """Truncate over-limit output at line boundaries instead of mid-line."""
-
-    assert ls._truncate_to_byte_limit("a.txt\nb.txt", byte_limit=11) == (
-        "a.txt\nb.txt",
-        False,
-    )
-    assert ls._truncate_to_byte_limit("a.txt\nb.txt", byte_limit=10) == (
-        "a.txt",
-        True,
-    )
-
-
 @pytest.mark.asyncio
 async def test_ls_reports_byte_limit(tmp_path: Path) -> None:
     """Report byte truncation when the listing output exceeds 50KB."""
@@ -69,8 +57,8 @@ async def test_ls_reports_byte_limit(tmp_path: Path) -> None:
     body = result.removesuffix(notice)
 
     assert result.endswith(notice)
-    assert len("\n".join(entries).encode("utf-8")) > ls.BYTE_LIMIT
-    assert len(body.encode("utf-8")) <= ls.BYTE_LIMIT
+    assert len("\n".join(entries).encode("utf-8")) > truncation.OUTPUT_BYTE_LIMIT
+    assert len(body.encode("utf-8")) <= truncation.OUTPUT_BYTE_LIMIT
 
 
 @pytest.mark.asyncio
