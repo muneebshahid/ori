@@ -1,11 +1,75 @@
 """Shared truncation helpers for built-in tool output."""
 
+from dataclasses import dataclass
+from typing import Literal
+
+# Maximum lines to keep before appending a truncation notice.
+OUTPUT_LINE_LIMIT: int = 2000
 # Maximum UTF-8 bytes to keep before appending a truncation notice.
 OUTPUT_BYTE_LIMIT: int = 50 * 1024
 # Human-readable label for the shared output byte limit.
 OUTPUT_BYTE_LIMIT_LABEL: str = "50.0KB"
 # Maximum characters to keep from one grep result text line.
 GREP_LINE_CHARACTER_LIMIT: int = 500
+TruncationReason = Literal["lines", "bytes"]
+
+
+@dataclass(frozen=True)
+class HeadTruncation:
+    """Metadata returned when keeping the beginning of tool output."""
+
+    content: str
+    truncated: bool
+    truncated_by: TruncationReason | None
+    total_lines: int
+    total_bytes: int
+    output_lines: int
+    output_bytes: int
+    first_line_exceeds_limit: bool
+    max_lines: int
+    max_bytes: int
+
+
+def truncate_head(
+    text: str,
+    max_lines: int = OUTPUT_LINE_LIMIT,
+    max_bytes: int = OUTPUT_BYTE_LIMIT,
+) -> HeadTruncation:
+    """Return leading complete lines constrained by line and byte limits."""
+
+    total_bytes = len(text.encode("utf-8"))
+    lines = text.split("\n")
+    total_lines = len(lines)
+    if total_lines <= max_lines and total_bytes <= max_bytes:
+        return _untruncated_head(text, total_lines, total_bytes, max_lines, max_bytes)
+    if len(lines[0].encode("utf-8")) > max_bytes:
+        return _first_line_exceeds_head(total_lines, total_bytes, max_lines, max_bytes)
+
+    output_lines: list[str] = []
+    output_bytes = 0
+    truncated_by: TruncationReason = "lines"
+    for line in lines[:max_lines]:
+        separator_bytes = 1 if output_lines else 0
+        line_bytes = len(line.encode("utf-8"))
+        if output_bytes + separator_bytes + line_bytes > max_bytes:
+            truncated_by = "bytes"
+            break
+        output_lines.append(line)
+        output_bytes += separator_bytes + line_bytes
+
+    content = "\n".join(output_lines)
+    return HeadTruncation(
+        content=content,
+        truncated=True,
+        truncated_by=truncated_by,
+        total_lines=total_lines,
+        total_bytes=total_bytes,
+        output_lines=len(output_lines),
+        output_bytes=len(content.encode("utf-8")),
+        first_line_exceeds_limit=False,
+        max_lines=max_lines,
+        max_bytes=max_bytes,
+    )
 
 
 def truncate_to_byte_limit(
@@ -40,3 +104,58 @@ def truncate_line(
     if len(line) <= character_limit:
         return line, False
     return f"{line[:character_limit]}... [truncated]", True
+
+
+def format_size(byte_count: int) -> str:
+    """Format a byte count with Pi-compatible units."""
+
+    if byte_count < 1024:
+        return f"{byte_count}B"
+    if byte_count < 1024 * 1024:
+        return f"{byte_count / 1024:.1f}KB"
+    return f"{byte_count / (1024 * 1024):.1f}MB"
+
+
+def _untruncated_head(
+    text: str,
+    total_lines: int,
+    total_bytes: int,
+    max_lines: int,
+    max_bytes: int,
+) -> HeadTruncation:
+    """Build metadata for content that did not need truncation."""
+
+    return HeadTruncation(
+        content=text,
+        truncated=False,
+        truncated_by=None,
+        total_lines=total_lines,
+        total_bytes=total_bytes,
+        output_lines=total_lines,
+        output_bytes=total_bytes,
+        first_line_exceeds_limit=False,
+        max_lines=max_lines,
+        max_bytes=max_bytes,
+    )
+
+
+def _first_line_exceeds_head(
+    total_lines: int,
+    total_bytes: int,
+    max_lines: int,
+    max_bytes: int,
+) -> HeadTruncation:
+    """Build metadata for content whose first line cannot fit."""
+
+    return HeadTruncation(
+        content="",
+        truncated=True,
+        truncated_by="bytes",
+        total_lines=total_lines,
+        total_bytes=total_bytes,
+        output_lines=0,
+        output_bytes=0,
+        first_line_exceeds_limit=True,
+        max_lines=max_lines,
+        max_bytes=max_bytes,
+    )
