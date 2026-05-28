@@ -4,14 +4,13 @@ from pydantic import BaseModel
 
 from ai.types.tools import ToolDefinition
 from agent.tools.executables import execute, require_executable
-from agent.tools.truncation import OUTPUT_BYTE_LIMIT_LABEL, truncate_to_byte_limit
+from agent.tools.truncation import OUTPUT_BYTE_LIMIT_LABEL, truncate_head
 
 
 class Results(BaseModel):
     """Structured file path search results returned by the find tool."""
 
     paths: list[str]
-    truncated: bool
 
 
 async def fn(
@@ -21,10 +20,11 @@ async def fn(
 ) -> str:
     """Find file paths matching a glob pattern."""
 
+    limit = max(1, limit)
     executable = require_executable("fd", "fd")
     args = _build_args(pattern, path, limit)
     output = await execute(executable, args)
-    results = _parse_output(output, limit)
+    results = _parse_output(output)
     return _format_results(results, limit)
 
 
@@ -35,14 +35,13 @@ def _build_args(
 ) -> list[str]:
     """Build command arguments for a file path search."""
 
-    effective_limit = max(1, limit)
     args = [
         "--glob",
         "--color=never",
         "--hidden",
         "--no-require-git",
         "--max-results",
-        str(effective_limit),
+        str(limit + 1),
     ]
 
     effective_pattern = _build_effective_pattern(pattern)
@@ -53,16 +52,11 @@ def _build_args(
     return args
 
 
-def _parse_output(output: str, limit: int) -> Results:
+def _parse_output(output: str) -> Results:
     """Parse fd stdout into structured file path search results."""
 
-    effective_limit = max(1, limit)
     paths = [_normalize_path(line) for line in output.splitlines() if line]
-
-    return Results(
-        paths=paths[:effective_limit],
-        truncated=len(paths) >= effective_limit,
-    )
+    return Results(paths=paths)
 
 
 def _format_results(results: Results, limit: int) -> str:
@@ -71,17 +65,16 @@ def _format_results(results: Results, limit: int) -> str:
     if not results.paths:
         return "No files found matching pattern"
 
-    output = "\n".join(results.paths)
-    output, byte_limit_reached = truncate_to_byte_limit(output)
+    truncation = truncate_head("\n".join(results.paths), max_lines=limit)
+    output = truncation.content
 
     notices: list[str] = []
-    if results.truncated:
-        effective_limit = max(1, limit)
+    if truncation.truncated_by == "lines":
         notices.append(
-            f"{effective_limit} results limit reached. "
-            f"Use limit={effective_limit * 2} for more, or refine pattern"
+            f"{limit} results limit reached. "
+            f"Use limit={limit * 2} for more, or refine pattern"
         )
-    if byte_limit_reached:
+    if truncation.truncated_by == "bytes":
         notices.append(f"{OUTPUT_BYTE_LIMIT_LABEL} limit reached")
     if notices:
         output += f"\n\n[{'. '.join(notices)}]"

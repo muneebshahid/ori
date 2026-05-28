@@ -68,7 +68,7 @@ async def test_fn_uses_default_file_search_flags(
             "--hidden",
             "--no-require-git",
             "--max-results",
-            "1000",
+            "1001",
             "--",
             "*.py",
             ".",
@@ -94,7 +94,7 @@ async def test_fn_uses_full_path_for_path_patterns(
         "--hidden",
         "--no-require-git",
         "--max-results",
-        "25",
+        "26",
         "--full-path",
         "--",
         "**/agent/**/*.py",
@@ -145,7 +145,7 @@ async def test_fn_clamps_limit_to_one(execution: AsyncMock) -> None:
         result
         == "a.py\n\n[1 results limit reached. Use limit=2 for more, or refine pattern]"
     )
-    assert _captured_args(execution)[4:6] == ["--max-results", "1"]
+    assert _captured_args(execution)[4:6] == ["--max-results", "2"]
 
 
 @pytest.mark.asyncio
@@ -192,6 +192,22 @@ async def test_fn_normalizes_paths_and_reports_result_limit(
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("fd_available")
+async def test_fn_reports_result_limit_when_result_boundary_is_first(
+    execution: AsyncMock,
+) -> None:
+    """Report the result limit when line count is the first truncation boundary."""
+
+    execution.return_value = "./a.py\n./b.py\n"
+
+    result = await find.fn(pattern="*.py", limit=1)
+
+    assert result == (
+        "a.py\n\n[1 results limit reached. Use limit=2 for more, or refine pattern]"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("fd_available")
 async def test_fn_reports_byte_limit(execution: AsyncMock) -> None:
     """Append a byte-limit notice when formatted output exceeds 50KB."""
 
@@ -204,6 +220,22 @@ async def test_fn_reports_byte_limit(execution: AsyncMock) -> None:
 
     assert result.endswith(notice)
     assert len(body.encode("utf-8")) <= truncation.OUTPUT_BYTE_LIMIT
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("fd_available")
+async def test_fn_reports_byte_limit_when_byte_boundary_is_first(
+    execution: AsyncMock,
+) -> None:
+    """Report only the byte limit when bytes truncate before result count."""
+
+    stdout = "\n".join(f"./{index:03d}-{'x' * 196}.py" for index in range(300))
+    execution.return_value = f"{stdout}\n"
+
+    result = await find.fn(pattern="*.py", limit=260)
+
+    assert result.endswith("\n\n[50.0KB limit reached]")
+    assert "results limit reached" not in result
 
 
 def _captured_args(execution: AsyncMock) -> list[str]:
