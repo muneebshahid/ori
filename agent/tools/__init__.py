@@ -1,6 +1,7 @@
 """Built-in tools for the default agent."""
 
+from agent.tools.find import tool as find_tool
 from agent.tools.grep import tool as grep_tool
 from agent.tools.ls import tool as ls_tool
 
-tools = [ls_tool, grep_tool]
+tools = [ls_tool, grep_tool, find_tool]
