@@ -53,7 +53,7 @@ async def test_ls_reports_byte_limit(tmp_path: Path) -> None:
 
     result = await ls.fn(path=str(tmp_path), limit=500)
     notice = "\n\n[50.0KB limit reached]"
-    entries = ls._execute(str(tmp_path))
+    entries = ls._list_directory_entries(str(tmp_path))
     body = result.removesuffix(notice)
 
     assert result.endswith(notice)

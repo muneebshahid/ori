@@ -1,9 +1,6 @@
 """Tests for the default file path search tool scaffold."""
 
-import pytest
-
 import agent.tools.find as find
-from agent.tools import tools
 
 
 def test_find_schema_requires_only_pattern() -> None:
