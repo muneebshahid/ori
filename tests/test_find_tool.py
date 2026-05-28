@@ -1,6 +1,7 @@
 """Tests for the default file path search tool scaffold."""
 
 import agent.tools.find as find
+import agent.tools.truncation as truncation
 
 
 def test_find_schema_requires_only_pattern() -> None:
@@ -79,3 +80,55 @@ def test_build_args_clamps_limit_to_one() -> None:
         "--max-results",
         "1",
     ]
+
+
+def test_format_results_reports_no_matches() -> None:
+    """Return a clear message when no file paths match."""
+
+    assert (
+        find._format_results(find.Results(paths=[], truncated=False), limit=1000)
+        == "No files found matching pattern"
+    )
+
+
+def test_format_results_returns_plain_paths() -> None:
+    """Format matching file paths as newline-separated plain text."""
+
+    result = find._format_results(
+        find.Results(
+            paths=["agent/tools/find.py", "tests/test_find_tool.py"], truncated=False
+        ),
+        limit=1000,
+    )
+
+    assert result == "agent/tools/find.py\ntests/test_find_tool.py"
+
+
+def test_format_results_reports_result_limit() -> None:
+    """Append a result-limit notice when results exceed the limit."""
+
+    result = find._format_results(
+        find.Results(paths=["a.py"], truncated=True),
+        limit=1,
+    )
+
+    assert result == (
+        "a.py\n\n[1 results limit reached. Use limit=2 for more, or refine pattern]"
+    )
+
+
+def test_format_results_reports_byte_limit() -> None:
+    """Append a byte-limit notice when formatted output exceeds 50KB."""
+
+    result = find._format_results(
+        find.Results(
+            paths=[f"{index:03d}-{'x' * 196}.py" for index in range(300)],
+            truncated=False,
+        ),
+        limit=1000,
+    )
+    notice = "\n\n[50.0KB limit reached]"
+    body = result.removesuffix(notice)
+
+    assert result.endswith(notice)
+    assert len(body.encode("utf-8")) <= truncation.OUTPUT_BYTE_LIMIT

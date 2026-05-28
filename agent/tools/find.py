@@ -1,6 +1,16 @@
 """File path search tool scaffold for the default agent."""
 
+from pydantic import BaseModel
+
 from ai.types.tools import ToolDefinition
+from agent.tools.truncation import OUTPUT_BYTE_LIMIT_LABEL, truncate_to_byte_limit
+
+
+class Results(BaseModel):
+    """Structured file path search results returned by the find tool."""
+
+    paths: list[str]
+    truncated: bool
 
 
 async def fn(
@@ -12,6 +22,29 @@ async def fn(
 
     _ = (pattern, path, limit)
     raise NotImplementedError("find execution is not implemented yet.")
+
+
+def _format_results(results: Results, limit: int) -> str:
+    """Format file path search results as compact plain text."""
+
+    if not results.paths:
+        return "No files found matching pattern"
+
+    output = "\n".join(results.paths)
+    output, byte_limit_reached = truncate_to_byte_limit(output)
+
+    notices: list[str] = []
+    if results.truncated:
+        effective_limit = max(1, limit)
+        notices.append(
+            f"{effective_limit} results limit reached. "
+            f"Use limit={effective_limit * 2} for more, or refine pattern"
+        )
+    if byte_limit_reached:
+        notices.append(f"{OUTPUT_BYTE_LIMIT_LABEL} limit reached")
+    if notices:
+        output += f"\n\n[{'. '.join(notices)}]"
+    return output
 
 
 def _build_args(
