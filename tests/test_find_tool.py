@@ -1,5 +1,10 @@
 """Tests for the default file path search tool scaffold."""
 
+from collections.abc import Sequence
+
+import pytest
+
+import agent.tools.executables as executables
 import agent.tools.find as find
 import agent.tools.truncation as truncation
 
@@ -82,6 +87,60 @@ def test_build_args_clamps_limit_to_one() -> None:
     ]
 
 
+@pytest.mark.asyncio
+async def test_fn_returns_formatted_results_when_fd_exists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Return formatted file path search results when fd exists."""
+
+    monkeypatch.setattr(executables.shutil, "which", _find_command)
+    monkeypatch.setattr(find, "execute", _fake_execution)
+
+    result = await find.fn(pattern="*.py")
+
+    assert result == "agent/tools/find.py\ntests/test_find_tool.py"
+
+
+@pytest.mark.asyncio
+async def test_fn_returns_no_matches_when_fd_output_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Return a no-match message when fd emits no paths."""
+
+    monkeypatch.setattr(executables.shutil, "which", _find_command)
+    monkeypatch.setattr(find, "execute", _fake_empty_execution)
+
+    result = await find.fn(pattern="*.missing")
+
+    assert result == "No files found matching pattern"
+
+
+@pytest.mark.asyncio
+async def test_fn_raises_when_fd_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Raise a clear exception when fd is unavailable."""
+
+    monkeypatch.setattr(executables.shutil, "which", _find_no_commands)
+
+    with pytest.raises(RuntimeError, match="fd"):
+        await find.fn(pattern="*.py")
+
+
+def test_parse_output_normalizes_paths_and_marks_limit() -> None:
+    """Parse fd stdout lines into normalized limited results."""
+
+    result = find._parse_output(
+        ".\\agent\\tools\\find.py\n./tests/test_find_tool.py\nextra.py\n",
+        limit=2,
+    )
+
+    assert result == find.Results(
+        paths=["agent/tools/find.py", "tests/test_find_tool.py"],
+        truncated=True,
+    )
+
+
 def test_format_results_reports_no_matches() -> None:
     """Return a clear message when no file paths match."""
 
@@ -132,3 +191,40 @@ def test_format_results_reports_byte_limit() -> None:
 
     assert result.endswith(notice)
     assert len(body.encode("utf-8")) <= truncation.OUTPUT_BYTE_LIMIT
+
+
+async def _fake_execution(
+    executable: str,
+    args: Sequence[str],
+    allowed_exit_codes: tuple[int, ...] = (0,),
+) -> str:
+    """Return representative fd output for fn tests."""
+
+    _ = (executable, args, allowed_exit_codes)
+    return "./agent/tools/find.py\n./tests/test_find_tool.py\n"
+
+
+async def _fake_empty_execution(
+    executable: str,
+    args: Sequence[str],
+    allowed_exit_codes: tuple[int, ...] = (0,),
+) -> str:
+    """Return empty fd output for no-match tests."""
+
+    _ = (executable, args, allowed_exit_codes)
+    return ""
+
+
+def _find_command(command: str) -> str | None:
+    """Return a path for the fd command only."""
+
+    if command == "fd":
+        return "/usr/bin/fd"
+    return None
+
+
+def _find_no_commands(command: str) -> None:
+    """Return no command path for all availability checks."""
+
+    _ = command
+    return None

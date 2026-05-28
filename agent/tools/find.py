@@ -3,6 +3,7 @@
 from pydantic import BaseModel
 
 from ai.types.tools import ToolDefinition
+from agent.tools.executables import execute, require_executable
 from agent.tools.truncation import OUTPUT_BYTE_LIMIT_LABEL, truncate_to_byte_limit
 
 
@@ -20,31 +21,11 @@ async def fn(
 ) -> str:
     """Find file paths matching a glob pattern."""
 
-    _ = (pattern, path, limit)
-    raise NotImplementedError("find execution is not implemented yet.")
-
-
-def _format_results(results: Results, limit: int) -> str:
-    """Format file path search results as compact plain text."""
-
-    if not results.paths:
-        return "No files found matching pattern"
-
-    output = "\n".join(results.paths)
-    output, byte_limit_reached = truncate_to_byte_limit(output)
-
-    notices: list[str] = []
-    if results.truncated:
-        effective_limit = max(1, limit)
-        notices.append(
-            f"{effective_limit} results limit reached. "
-            f"Use limit={effective_limit * 2} for more, or refine pattern"
-        )
-    if byte_limit_reached:
-        notices.append(f"{OUTPUT_BYTE_LIMIT_LABEL} limit reached")
-    if notices:
-        output += f"\n\n[{'. '.join(notices)}]"
-    return output
+    executable = require_executable("fd", "fd")
+    args = _build_args(pattern, path, limit)
+    output = await execute(executable, args)
+    results = _parse_output(output, limit)
+    return _format_results(results, limit)
 
 
 def _build_args(
@@ -72,6 +53,41 @@ def _build_args(
     return args
 
 
+def _parse_output(output: str, limit: int) -> Results:
+    """Parse fd stdout into structured file path search results."""
+
+    effective_limit = max(1, limit)
+    paths = [_normalize_path(line) for line in output.splitlines() if line]
+
+    return Results(
+        paths=paths[:effective_limit],
+        truncated=len(paths) >= effective_limit,
+    )
+
+
+def _format_results(results: Results, limit: int) -> str:
+    """Format file path search results as compact plain text."""
+
+    if not results.paths:
+        return "No files found matching pattern"
+
+    output = "\n".join(results.paths)
+    output, byte_limit_reached = truncate_to_byte_limit(output)
+
+    notices: list[str] = []
+    if results.truncated:
+        effective_limit = max(1, limit)
+        notices.append(
+            f"{effective_limit} results limit reached. "
+            f"Use limit={effective_limit * 2} for more, or refine pattern"
+        )
+    if byte_limit_reached:
+        notices.append(f"{OUTPUT_BYTE_LIMIT_LABEL} limit reached")
+    if notices:
+        output += f"\n\n[{'. '.join(notices)}]"
+    return output
+
+
 def _build_effective_pattern(pattern: str) -> str:
     """Return the pattern adjusted for fd full-path matching."""
 
@@ -82,6 +98,15 @@ def _build_effective_pattern(pattern: str) -> str:
         return f"**{pattern}"
 
     return f"**/{pattern}"
+
+
+def _normalize_path(path: str) -> str:
+    """Normalize one fd output path for compact display."""
+
+    normalized = path.rstrip("\r").replace("\\", "/")
+    if normalized.startswith("./"):
+        return normalized[2:]
+    return normalized
 
 
 def _matches_full_path(pattern: str) -> bool:
