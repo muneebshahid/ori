@@ -1,7 +1,6 @@
 """Tests for the default search tool scaffold."""
 
 import json
-import sys
 from collections.abc import Sequence
 from typing import Literal
 
@@ -88,7 +87,7 @@ async def test_fn_returns_results_when_command_is_available(
     """Return compact grep-style text when rg exists."""
 
     monkeypatch.setattr(executables.shutil, "which", _find_command)
-    monkeypatch.setattr(grep, "_execute", _fake_execution)
+    monkeypatch.setattr(grep, "execute", _fake_execution)
 
     result = await grep.fn(pattern="needle")
 
@@ -102,7 +101,7 @@ async def test_fn_returns_multiple_result_lines(
     """Return compact grep-style text for multiple command output lines."""
 
     monkeypatch.setattr(executables.shutil, "which", _find_command)
-    monkeypatch.setattr(grep, "_execute", _fake_multi_line_execution)
+    monkeypatch.setattr(grep, "execute", _fake_multi_line_execution)
 
     result = await grep.fn(pattern="needle")
 
@@ -119,29 +118,6 @@ async def test_fn_raises_when_command_is_missing(
 
     with pytest.raises(RuntimeError, match="ripgrep"):
         await grep.fn(pattern="needle")
-
-
-@pytest.mark.asyncio
-async def test_execute_returns_process_result() -> None:
-    """Return captured stdout from a process."""
-
-    result = await grep._execute(
-        sys.executable,
-        ["-c", "print('out')"],
-    )
-
-    assert result == "out\n"
-
-
-@pytest.mark.asyncio
-async def test_execute_raises_on_search_error() -> None:
-    """Raise when the search process exits with an error code."""
-
-    with pytest.raises(RuntimeError, match="boom"):
-        await grep._execute(
-            sys.executable,
-            ["-c", "import sys; print('boom', file=sys.stderr); sys.exit(2)"],
-        )
 
 
 def test_parse_output_returns_pydantic_results() -> None:
@@ -383,20 +359,22 @@ def _find_no_commands(command: str) -> None:
 async def _fake_execution(
     executable: str,
     args: Sequence[str],
+    allowed_exit_codes: tuple[int, ...] = (0,),
 ) -> str:
     """Return representative command output for fn tests."""
 
-    _ = (executable, args)
+    _ = (executable, args, allowed_exit_codes)
     return _event("match", "example.txt", 2, "needle line\n")
 
 
 async def _fake_multi_line_execution(
     executable: str,
     args: Sequence[str],
+    allowed_exit_codes: tuple[int, ...] = (0,),
 ) -> str:
     """Return multiple representative command output lines for fn tests."""
 
-    _ = (executable, args)
+    _ = (executable, args, allowed_exit_codes)
     return "\n".join(
         [
             _event("match", "one.txt", 1, "needle one\n"),

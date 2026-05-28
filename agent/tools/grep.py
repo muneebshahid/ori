@@ -1,13 +1,11 @@
-"""Search tool scaffold for the default agent."""
+"""Search tool for the default agent."""
 
-import asyncio
-from collections.abc import Sequence
 from typing import Literal
 
 from pydantic import BaseModel, ValidationError
 
 from ai.types.tools import ToolDefinition
-from agent.tools.executables import require_executable
+from agent.tools.executables import execute, require_executable
 from agent.tools.truncation import (
     GREP_LINE_CHARACTER_LIMIT,
     OUTPUT_BYTE_LIMIT_LABEL,
@@ -67,29 +65,9 @@ async def fn(
 
     executable = require_executable("rg", "ripgrep (rg)")
     args = _build_args(pattern, path, glob, ignore_case, literal, context, limit)
-    output = await _execute(executable, args)
+    output = await execute(executable, args, allowed_exit_codes=(0, 1))
     results = _parse_output(output, limit)
     return _format_results(results, limit)
-
-
-async def _execute(
-    executable: str,
-    args: Sequence[str],
-) -> str:
-    """Run the search command asynchronously and return captured stdout."""
-
-    process = await asyncio.create_subprocess_exec(
-        executable,
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout_bytes, stderr_bytes = await process.communicate()
-    exit_code = process.returncode or 0
-    if exit_code not in (0, 1):
-        error = stderr_bytes.decode().strip() or f"search exited with code {exit_code}"
-        raise RuntimeError(error)
-    return stdout_bytes.decode()
 
 
 def _parse_output(output: str, limit: int) -> Results:
