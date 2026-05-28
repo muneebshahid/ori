@@ -1,13 +1,13 @@
 """Search tool scaffold for the default agent."""
 
 import asyncio
-import shutil
 from collections.abc import Sequence
 from typing import Literal
 
 from pydantic import BaseModel, ValidationError
 
 from ai.types.tools import ToolDefinition
+from agent.tools.executables import require_executable
 from agent.tools.truncation import (
     GREP_LINE_CHARACTER_LIMIT,
     OUTPUT_BYTE_LIMIT_LABEL,
@@ -65,10 +65,7 @@ async def fn(
 ) -> str:
     """Search file contents for a pattern."""
 
-    executable = shutil.which("rg")
-    if executable is None:
-        raise RuntimeError("ripgrep (rg) is not available.")
-
+    executable = require_executable("rg", "ripgrep (rg)")
     args = _build_args(pattern, path, glob, ignore_case, literal, context, limit)
     output = await _execute(executable, args)
     results = _parse_output(output, limit)

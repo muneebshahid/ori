@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from typing import Literal
 
 import pytest
+import agent.tools.executables as executables
 import agent.tools.grep as grep
 import agent.tools.truncation as truncation
 
@@ -86,7 +87,7 @@ async def test_fn_returns_results_when_command_is_available(
 ) -> None:
     """Return compact grep-style text when rg exists."""
 
-    monkeypatch.setattr(grep.shutil, "which", _find_command)
+    monkeypatch.setattr(executables.shutil, "which", _find_command)
     monkeypatch.setattr(grep, "_execute", _fake_execution)
 
     result = await grep.fn(pattern="needle")
@@ -100,7 +101,7 @@ async def test_fn_returns_multiple_result_lines(
 ) -> None:
     """Return compact grep-style text for multiple command output lines."""
 
-    monkeypatch.setattr(grep.shutil, "which", _find_command)
+    monkeypatch.setattr(executables.shutil, "which", _find_command)
     monkeypatch.setattr(grep, "_execute", _fake_multi_line_execution)
 
     result = await grep.fn(pattern="needle")
@@ -114,7 +115,7 @@ async def test_fn_raises_when_command_is_missing(
 ) -> None:
     """Raise a clear exception when rg is unavailable."""
 
-    monkeypatch.setattr(grep.shutil, "which", _find_no_commands)
+    monkeypatch.setattr(executables.shutil, "which", _find_no_commands)
 
     with pytest.raises(RuntimeError, match="ripgrep"):
         await grep.fn(pattern="needle")
