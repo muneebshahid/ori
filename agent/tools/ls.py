@@ -11,7 +11,7 @@ from agent.tools.truncation import OUTPUT_BYTE_LIMIT_LABEL, truncate_to_byte_lim
 async def fn(path: str = ".", limit: int = 500) -> str:
     """List the contents of a directory."""
 
-    entries = await asyncio.to_thread(_list_directory_entries, path)
+    entries = await asyncio.to_thread(_execute, path)
     limited_entries = entries[:limit]
     if not limited_entries:
         return "(empty directory)"
@@ -29,7 +29,7 @@ async def fn(path: str = ".", limit: int = 500) -> str:
     return result
 
 
-def _list_directory_entries(path: str) -> list[str]:
+def _execute(path: str) -> list[str]:
     """Return directory entry names for a string path."""
 
     return sorted(
