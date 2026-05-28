@@ -1,6 +1,6 @@
-"""Tests for the default file path search tool scaffold."""
+"""Tests for the default file path search tool."""
 
-from collections.abc import Sequence
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -25,26 +25,70 @@ def test_find_schema_exposes_path_search_controls() -> None:
     assert set(properties) == {"pattern", "path", "limit"}
 
 
-def test_build_args_uses_default_file_search_flags() -> None:
-    """Build the default argv for file path search output."""
+@pytest.fixture
+def fd_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the fd executable available to fn-level tests."""
 
-    assert find._build_args(pattern="*.py", path=".", limit=1000) == [
-        "--glob",
-        "--color=never",
-        "--hidden",
-        "--no-require-git",
-        "--max-results",
-        "1000",
-        "--",
-        "*.py",
-        ".",
-    ]
+    monkeypatch.setattr(executables.shutil, "which", _find_command)
 
 
-def test_build_args_uses_full_path_for_path_patterns() -> None:
+@pytest.fixture
+def fd_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the fd executable unavailable to fn-level tests."""
+
+    monkeypatch.setattr(executables.shutil, "which", _find_no_commands)
+
+
+@pytest.fixture
+def execution(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    """Patch command execution with an async mock for fn-level tests."""
+
+    execution_mock = AsyncMock()
+    monkeypatch.setattr(find, "execute", execution_mock)
+    return execution_mock
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("fd_available")
+async def test_fn_uses_default_file_search_flags(
+    execution: AsyncMock,
+) -> None:
+    """Build default fd arguments and return formatted file path results."""
+
+    execution.return_value = "./agent/tools/find.py\n"
+
+    result = await find.fn(pattern="*.py")
+
+    assert result == "agent/tools/find.py"
+    execution.assert_awaited_once_with(
+        "/usr/bin/fd",
+        [
+            "--glob",
+            "--color=never",
+            "--hidden",
+            "--no-require-git",
+            "--max-results",
+            "1000",
+            "--",
+            "*.py",
+            ".",
+        ],
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("fd_available")
+async def test_fn_uses_full_path_for_path_patterns(
+    execution: AsyncMock,
+) -> None:
     """Match path-shaped glob patterns against full candidate paths."""
 
-    assert find._build_args(pattern="agent/**/*.py", path=".", limit=25) == [
+    execution.return_value = "./agent/tools/find.py\n"
+
+    result = await find.fn(pattern="agent/**/*.py", path=".", limit=25)
+
+    assert result == "agent/tools/find.py"
+    assert _captured_args(execution) == [
         "--glob",
         "--color=never",
         "--hidden",
@@ -58,57 +102,60 @@ def test_build_args_uses_full_path_for_path_patterns() -> None:
     ]
 
 
-def test_build_args_normalizes_root_relative_full_path_pattern() -> None:
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("fd_available")
+async def test_fn_normalizes_root_relative_full_path_pattern(
+    execution: AsyncMock,
+) -> None:
     """Treat leading-slash glob patterns as search-root-relative paths."""
 
-    assert find._build_args(pattern="/tools/*.py", path=".", limit=25)[-3:] == [
-        "--",
-        "**/tools/*.py",
-        ".",
-    ]
+    execution.return_value = "./agent/tools/find.py\n"
+
+    result = await find.fn(pattern="/tools/*.py", path=".", limit=25)
+
+    assert result == "agent/tools/find.py"
+    assert _captured_args(execution)[-3:] == ["--", "**/tools/*.py", "."]
 
 
-def test_build_args_preserves_prefixed_full_path_pattern() -> None:
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("fd_available")
+async def test_fn_preserves_prefixed_full_path_pattern(
+    execution: AsyncMock,
+) -> None:
     """Do not double-prefix full-path glob patterns."""
 
-    assert find._build_args(pattern="**/tools/*.py", path=".", limit=25)[-3:] == [
-        "--",
-        "**/tools/*.py",
-        ".",
-    ]
+    execution.return_value = "./agent/tools/find.py\n"
+
+    result = await find.fn(pattern="**/tools/*.py", path=".", limit=25)
+
+    assert result == "agent/tools/find.py"
+    assert _captured_args(execution)[-3:] == ["--", "**/tools/*.py", "."]
 
 
-def test_build_args_clamps_limit_to_one() -> None:
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("fd_available")
+async def test_fn_clamps_limit_to_one(execution: AsyncMock) -> None:
     """Keep fd max-results positive even when callers pass a low limit."""
 
-    assert find._build_args(pattern="*.py", path=".", limit=0)[4:6] == [
-        "--max-results",
-        "1",
-    ]
+    execution.return_value = "./a.py\n./b.py\n"
+
+    result = await find.fn(pattern="*.py", limit=0)
+
+    assert (
+        result
+        == "a.py\n\n[1 results limit reached. Use limit=2 for more, or refine pattern]"
+    )
+    assert _captured_args(execution)[4:6] == ["--max-results", "1"]
 
 
 @pytest.mark.asyncio
-async def test_fn_returns_formatted_results_when_fd_exists(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Return formatted file path search results when fd exists."""
-
-    monkeypatch.setattr(executables.shutil, "which", _find_command)
-    monkeypatch.setattr(find, "execute", _fake_execution)
-
-    result = await find.fn(pattern="*.py")
-
-    assert result == "agent/tools/find.py\ntests/test_find_tool.py"
-
-
-@pytest.mark.asyncio
+@pytest.mark.usefixtures("fd_available")
 async def test_fn_returns_no_matches_when_fd_output_is_empty(
-    monkeypatch: pytest.MonkeyPatch,
+    execution: AsyncMock,
 ) -> None:
     """Return a no-match message when fd emits no paths."""
 
-    monkeypatch.setattr(executables.shutil, "which", _find_command)
-    monkeypatch.setattr(find, "execute", _fake_empty_execution)
+    execution.return_value = ""
 
     result = await find.fn(pattern="*.missing")
 
@@ -116,76 +163,42 @@ async def test_fn_returns_no_matches_when_fd_output_is_empty(
 
 
 @pytest.mark.asyncio
-async def test_fn_raises_when_fd_is_missing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+@pytest.mark.usefixtures("fd_missing")
+async def test_fn_raises_when_fd_is_missing() -> None:
     """Raise a clear exception when fd is unavailable."""
-
-    monkeypatch.setattr(executables.shutil, "which", _find_no_commands)
 
     with pytest.raises(RuntimeError, match="fd"):
         await find.fn(pattern="*.py")
 
 
-def test_parse_output_normalizes_paths_and_marks_limit() -> None:
-    """Parse fd stdout lines into normalized limited results."""
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("fd_available")
+async def test_fn_normalizes_paths_and_reports_result_limit(
+    execution: AsyncMock,
+) -> None:
+    """Normalize fd output paths and report when results reach the limit."""
 
-    result = find._parse_output(
-        ".\\agent\\tools\\find.py\n./tests/test_find_tool.py\nextra.py\n",
-        limit=2,
+    execution.return_value = (
+        ".\\agent\\tools\\find.py\n./tests/test_find_tool.py\n./extra.py\n"
     )
 
-    assert result == find.Results(
-        paths=["agent/tools/find.py", "tests/test_find_tool.py"],
-        truncated=True,
-    )
-
-
-def test_format_results_reports_no_matches() -> None:
-    """Return a clear message when no file paths match."""
-
-    assert (
-        find._format_results(find.Results(paths=[], truncated=False), limit=1000)
-        == "No files found matching pattern"
-    )
-
-
-def test_format_results_returns_plain_paths() -> None:
-    """Format matching file paths as newline-separated plain text."""
-
-    result = find._format_results(
-        find.Results(
-            paths=["agent/tools/find.py", "tests/test_find_tool.py"], truncated=False
-        ),
-        limit=1000,
-    )
-
-    assert result == "agent/tools/find.py\ntests/test_find_tool.py"
-
-
-def test_format_results_reports_result_limit() -> None:
-    """Append a result-limit notice when results exceed the limit."""
-
-    result = find._format_results(
-        find.Results(paths=["a.py"], truncated=True),
-        limit=1,
-    )
+    result = await find.fn(pattern="*.py", limit=2)
 
     assert result == (
-        "a.py\n\n[1 results limit reached. Use limit=2 for more, or refine pattern]"
+        "agent/tools/find.py\ntests/test_find_tool.py\n\n"
+        "[2 results limit reached. Use limit=4 for more, or refine pattern]"
     )
 
 
-def test_format_results_reports_byte_limit() -> None:
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("fd_available")
+async def test_fn_reports_byte_limit(execution: AsyncMock) -> None:
     """Append a byte-limit notice when formatted output exceeds 50KB."""
 
-    result = find._format_results(
-        find.Results(
-            paths=[f"{index:03d}-{'x' * 196}.py" for index in range(300)],
-            truncated=False,
-        ),
-        limit=1000,
-    )
+    stdout = "\n".join(f"./{index:03d}-{'x' * 196}.py" for index in range(300))
+    execution.return_value = f"{stdout}\n"
+
+    result = await find.fn(pattern="*.py", limit=1000)
     notice = "\n\n[50.0KB limit reached]"
     body = result.removesuffix(notice)
 
@@ -193,26 +206,15 @@ def test_format_results_reports_byte_limit() -> None:
     assert len(body.encode("utf-8")) <= truncation.OUTPUT_BYTE_LIMIT
 
 
-async def _fake_execution(
-    executable: str,
-    args: Sequence[str],
-    allowed_exit_codes: tuple[int, ...] = (0,),
-) -> str:
-    """Return representative fd output for fn tests."""
+def _captured_args(execution: AsyncMock) -> list[str]:
+    """Return the fd args captured by a fake execution call."""
 
-    _ = (executable, args, allowed_exit_codes)
-    return "./agent/tools/find.py\n./tests/test_find_tool.py\n"
-
-
-async def _fake_empty_execution(
-    executable: str,
-    args: Sequence[str],
-    allowed_exit_codes: tuple[int, ...] = (0,),
-) -> str:
-    """Return empty fd output for no-match tests."""
-
-    _ = (executable, args, allowed_exit_codes)
-    return ""
+    execution.assert_awaited_once()
+    await_args = execution.await_args
+    assert await_args is not None
+    args = await_args.args
+    assert isinstance(args[1], list)
+    return args[1]
 
 
 def _find_command(command: str) -> str | None:
