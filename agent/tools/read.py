@@ -1,12 +1,13 @@
-"""Text file read tool for the default agent."""
+"""Text and image file read tool for the default agent."""
 
-from pathlib import Path
+import base64
 import re
 import unicodedata
+from pathlib import Path
 
 from pydantic import BaseModel
 
-from ai.types.tools import ToolDefinition, ToolResult
+from ai.types.tools import ImageMimeType, ToolDefinition, ToolImageContent, ToolResult
 from agent.tools.truncation import (
     OUTPUT_BYTE_LIMIT,
     OUTPUT_BYTE_LIMIT_LABEL,
@@ -17,6 +18,8 @@ from agent.tools.truncation import (
 
 UNICODE_SPACES = re.compile(r"[\u00A0\u2000-\u200A\u202F\u205F\u3000]")
 NARROW_NO_BREAK_SPACE = "\u202f"
+IMAGE_TYPE_SNIFF_BYTES = 4100
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
 class ReadSelection(BaseModel):
@@ -33,17 +36,22 @@ async def fn(
     offset: int | None = None,
     limit: int | None = None,
 ) -> ToolResult:
-    """Read a UTF-8 text file with optional line offset and limit."""
+    """Read a UTF-8 text file or supported image file."""
 
-    content = _execute(path)
+    resolved_path = _resolve_path(path)
+    image_mime_type = _detect_supported_image_mime_type(resolved_path)
+    if image_mime_type is not None:
+        return _read_image(resolved_path, image_mime_type)
+
+    content = _execute(resolved_path)
     selection = _parse_output(content, offset, limit)
     return ToolResult.text(_format_results(selection, path))
 
 
-def _execute(path: str) -> str:
+def _execute(path: Path) -> str:
     """Read a UTF-8 text file from disk."""
 
-    return _resolve_path(path).read_text(encoding="utf-8")
+    return path.read_text(encoding="utf-8")
 
 
 def _parse_output(
@@ -87,6 +95,84 @@ def _resolve_path(path: str) -> Path:
 
     resolved = _resolve_to_cwd(_expand_path(path))
     return _existing_path_variant(resolved)
+
+
+def _read_image(path: Path, mime_type: ImageMimeType) -> ToolResult:
+    """Read an image file and return base64 image content."""
+
+    encoded_image = base64.b64encode(path.read_bytes()).decode("ascii")
+    return ToolResult.image(
+        f'<file name="{path}">[{mime_type}]</file>',
+        ToolImageContent(data=encoded_image, mime_type=mime_type),
+    )
+
+
+def _detect_supported_image_mime_type(path: Path) -> ImageMimeType | None:
+    """Detect supported image MIME type by sniffing the file header."""
+
+    with path.open("rb") as file:
+        header = file.read(IMAGE_TYPE_SNIFF_BYTES)
+    return _detect_supported_image_mime_type_from_bytes(header)
+
+
+def _detect_supported_image_mime_type_from_bytes(
+    content: bytes,
+) -> ImageMimeType | None:
+    """Detect supported image MIME type from leading file bytes."""
+
+    if _is_jpeg(content):
+        return "image/jpeg"
+    if _is_supported_png(content):
+        return "image/png"
+    if _is_gif(content):
+        return "image/gif"
+    if _is_webp(content):
+        return "image/webp"
+    return None
+
+
+def _is_jpeg(content: bytes) -> bool:
+    """Return whether bytes look like a supported JPEG image."""
+
+    return len(content) >= 4 and content[:3] == b"\xff\xd8\xff" and content[3] != 0xF7
+
+
+def _is_supported_png(content: bytes) -> bool:
+    """Return whether bytes look like a non-animated PNG image."""
+
+    return _is_png(content) and not _is_animated_png(content)
+
+
+def _is_png(content: bytes) -> bool:
+    """Return whether bytes look like a PNG image."""
+
+    return (
+        len(content) >= 16
+        and content.startswith(PNG_SIGNATURE)
+        and content[12:16] == b"IHDR"
+    )
+
+
+def _is_animated_png(content: bytes) -> bool:
+    """Return whether PNG bytes contain an animation control chunk before image data."""
+
+    animation_chunk_index = content.find(b"acTL")
+    image_data_index = content.find(b"IDAT")
+    return animation_chunk_index != -1 and (
+        image_data_index == -1 or animation_chunk_index < image_data_index
+    )
+
+
+def _is_gif(content: bytes) -> bool:
+    """Return whether bytes look like a GIF image."""
+
+    return content.startswith(b"GIF")
+
+
+def _is_webp(content: bytes) -> bool:
+    """Return whether bytes look like a WEBP image."""
+
+    return len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP"
 
 
 def _expand_path(path: str) -> str:
@@ -264,8 +350,9 @@ def _start_index_from_selection(selection: ReadSelection) -> int:
 tool = ToolDefinition(
     name="read",
     description=(
-        "Read the contents of a UTF-8 text file. Output is truncated to 2000 lines "
-        "or 50KB. Use offset and limit for large files."
+        "Read the contents of a UTF-8 text file or supported image file. Text "
+        "output is truncated to 2000 lines or 50KB. Use offset and limit for "
+        "large text files."
     ),
     input_schema={
         "type": "object",

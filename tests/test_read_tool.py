@@ -1,5 +1,6 @@
-"""Tests for the default text file read tool."""
+"""Tests for the default file read tool."""
 
+import base64
 import unicodedata
 from pathlib import Path
 
@@ -7,7 +8,7 @@ import pytest
 
 import agent.tools.read as read
 import agent.tools.truncation as truncation
-from ai.types.tools import ToolResult, ToolTextContent
+from ai.types.tools import ToolImageContent, ToolResult, ToolTextContent
 
 
 def test_read_schema_requires_only_path() -> None:
@@ -129,6 +130,25 @@ async def test_read_reports_first_line_exceeds_byte_limit(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_read_returns_image_content_for_supported_image(tmp_path: Path) -> None:
+    """Return text and base64 image blocks for supported image files."""
+
+    image_bytes = _png_bytes()
+    file_path = _write_bytes(tmp_path / "sample.png", image_bytes)
+
+    result = await read.fn(path=str(file_path))
+
+    assert len(result.content) == 2
+    text_content = result.content[0]
+    image_content = result.content[1]
+    assert isinstance(text_content, ToolTextContent)
+    assert isinstance(image_content, ToolImageContent)
+    assert text_content.text == f'<file name="{file_path}">[image/png]</file>'
+    assert image_content.mime_type == "image/png"
+    assert image_content.data == base64.b64encode(image_bytes).decode("ascii")
+
+
+@pytest.mark.asyncio
 async def test_read_raises_when_path_does_not_exist(tmp_path: Path) -> None:
     """Raise filesystem errors so the agent can mark tool execution as failed."""
 
@@ -219,6 +239,30 @@ def _write_lines(path: Path, lines: list[str]) -> Path:
 
     path.write_text("\n".join(lines), encoding="utf-8")
     return path
+
+
+def _write_bytes(path: Path, content: bytes) -> Path:
+    """Write bytes to a test file and return its path."""
+
+    path.write_bytes(content)
+    return path
+
+
+def _png_bytes() -> bytes:
+    """Return enough PNG bytes for MIME sniffing tests."""
+
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        b"\x00\x00\x00\r"
+        b"IHDR"
+        b"\x00\x00\x00\x01"
+        b"\x00\x00\x00\x01"
+        b"\x08\x02\x00\x00\x00"
+        b"\x90wS\xde"
+        b"\x00\x00\x00\x00"
+        b"IEND"
+        b"\xaeB`\x82"
+    )
 
 
 def _write_numbered_lines(path: Path, count: int) -> Path:
