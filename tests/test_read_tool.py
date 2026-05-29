@@ -1,5 +1,6 @@
 """Tests for the default text file read tool."""
 
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -132,6 +133,84 @@ async def test_read_raises_when_path_does_not_exist(tmp_path: Path) -> None:
 
     with pytest.raises(FileNotFoundError):
         await read.fn(path=str(tmp_path / "missing.txt"))
+
+
+@pytest.mark.asyncio
+async def test_read_strips_at_prefix_for_referenced_paths(tmp_path: Path) -> None:
+    """Resolve paths with a leading at sign."""
+
+    file_path = _write_lines(tmp_path / "sample.txt", ["content"])
+
+    result = await read.fn(path=f"@{file_path}")
+
+    assert result == "content"
+
+
+@pytest.mark.asyncio
+async def test_read_expands_home_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Resolve paths that start with a home-directory marker."""
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _write_lines(tmp_path / "sample.txt", ["content"])
+
+    result = await read.fn(path="~/sample.txt")
+
+    assert result == "content"
+
+
+@pytest.mark.asyncio
+async def test_read_normalizes_unicode_spaces(tmp_path: Path) -> None:
+    """Resolve paths typed with uncommon Unicode spaces."""
+
+    file_path = _write_lines(tmp_path / "my file.txt", ["content"])
+    requested_path = str(file_path).replace(" ", "\u00a0")
+
+    result = await read.fn(path=requested_path)
+
+    assert result == "content"
+
+
+@pytest.mark.asyncio
+async def test_read_tries_macos_screenshot_ampm_spacing(tmp_path: Path) -> None:
+    """Resolve macOS screenshot names that use narrow no-break spaces."""
+
+    file_path = _write_lines(
+        tmp_path / "Screenshot 2026-05-28 at 10.30.00\u202fAM.png",
+        ["content"],
+    )
+    requested_path = str(file_path).replace("\u202fAM.", " AM.")
+
+    result = await read.fn(path=requested_path)
+
+    assert result == "content"
+
+
+@pytest.mark.asyncio
+async def test_read_tries_nfd_filename_variant(tmp_path: Path) -> None:
+    """Resolve filenames stored in decomposed Unicode form."""
+
+    decomposed_name = unicodedata.normalize("NFD", "café.txt")
+    file_path = _write_lines(tmp_path / decomposed_name, ["content"])
+    requested_path = str(file_path.with_name("café.txt"))
+
+    result = await read.fn(path=requested_path)
+
+    assert result == "content"
+
+
+@pytest.mark.asyncio
+async def test_read_tries_curly_quote_filename_variant(tmp_path: Path) -> None:
+    """Resolve filenames that use a curly apostrophe."""
+
+    file_path = _write_lines(tmp_path / "Capture d\u2019ecran.txt", ["content"])
+    requested_path = str(file_path).replace("\u2019", "'")
+
+    result = await read.fn(path=requested_path)
+
+    assert result == "content"
 
 
 def _write_lines(path: Path, lines: list[str]) -> Path:

@@ -1,6 +1,8 @@
 """Text file read tool for the default agent."""
 
 from pathlib import Path
+import re
+import unicodedata
 
 from pydantic import BaseModel
 
@@ -12,6 +14,9 @@ from agent.tools.truncation import (
     format_size,
     truncate_head,
 )
+
+UNICODE_SPACES = re.compile(r"[\u00A0\u2000-\u200A\u202F\u205F\u3000]")
+NARROW_NO_BREAK_SPACE = "\u202f"
 
 
 class ReadSelection(BaseModel):
@@ -78,12 +83,90 @@ def _format_results(selection: ReadSelection, path: str) -> str:
 
 
 def _resolve_path(path: str) -> Path:
-    """Resolve a path relative to the current working directory."""
+    """Resolve a path with Pi-compatible user-input path variants."""
 
-    candidate = Path(path).expanduser()
+    resolved = _resolve_to_cwd(_expand_path(path))
+    return _existing_path_variant(resolved)
+
+
+def _expand_path(path: str) -> str:
+    """Expand shorthand path syntax before absolute resolution."""
+
+    normalized = _normalize_unicode_spaces(_normalize_at_prefix(path))
+    return str(Path(normalized).expanduser())
+
+
+def _normalize_at_prefix(path: str) -> str:
+    """Strip a leading at sign used when users paste referenced paths."""
+
+    if path.startswith("@"):
+        return path[1:]
+    return path
+
+
+def _normalize_unicode_spaces(path: str) -> str:
+    """Normalize uncommon Unicode spaces to ordinary spaces."""
+
+    return UNICODE_SPACES.sub(" ", path)
+
+
+def _resolve_to_cwd(path: str) -> Path:
+    """Resolve relative paths against the current working directory."""
+
+    candidate = Path(path)
     if candidate.is_absolute():
         return candidate
     return Path.cwd() / candidate
+
+
+def _existing_path_variant(path: Path) -> Path:
+    """Return the first existing forgiving path variant."""
+
+    for candidate in _path_variants(path):
+        if candidate.exists():
+            return candidate
+    return path
+
+
+def _path_variants(path: Path) -> list[Path]:
+    """Return Pi-compatible path spelling variants to try."""
+
+    macos_screenshot_path = _macos_screenshot_path(path)
+    nfd_path = _nfd_path(path)
+    curly_quote_path = _curly_quote_path(path)
+    nfd_curly_quote_path = _curly_quote_path(nfd_path)
+    return [
+        path,
+        macos_screenshot_path,
+        nfd_path,
+        curly_quote_path,
+        nfd_curly_quote_path,
+    ]
+
+
+def _macos_screenshot_path(path: Path) -> Path:
+    """Return a macOS screenshot AM/PM spacing variant."""
+
+    return Path(
+        re.sub(
+            r" (AM|PM)\.",
+            lambda match: f"{NARROW_NO_BREAK_SPACE}{match.group(1)}.",
+            str(path),
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _nfd_path(path: Path) -> Path:
+    """Return an NFD-normalized path variant."""
+
+    return Path(unicodedata.normalize("NFD", str(path)))
+
+
+def _curly_quote_path(path: Path) -> Path:
+    """Return a path variant using right single quotation marks."""
+
+    return Path(str(path).replace("'", "\u2019"))
 
 
 def _start_index(offset: int | None) -> int:
