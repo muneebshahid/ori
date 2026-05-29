@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel
 
-from ai.types.tools import ToolDefinition
+from ai.types.tools import ToolDefinition, ToolResult
 from agent.tools.executables import execute, require_executable
 from agent.tools.truncation import OUTPUT_BYTE_LIMIT_LABEL, truncate_head
 
@@ -17,7 +17,7 @@ async def fn(
     pattern: str,
     path: str = ".",
     limit: int = 1000,
-) -> str:
+) -> ToolResult:
     """Find file paths matching a glob pattern."""
 
     limit = max(1, limit)
@@ -25,7 +25,7 @@ async def fn(
     args = _build_args(pattern, path, limit)
     output = await execute(executable, args)
     results = _parse_output(output)
-    return _format_results(results, limit)
+    return ToolResult.text(_format_results(results, limit))
 
 
 def _build_args(

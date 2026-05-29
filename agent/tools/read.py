@@ -6,7 +6,7 @@ import unicodedata
 
 from pydantic import BaseModel
 
-from ai.types.tools import ToolDefinition
+from ai.types.tools import ToolDefinition, ToolResult
 from agent.tools.truncation import (
     OUTPUT_BYTE_LIMIT,
     OUTPUT_BYTE_LIMIT_LABEL,
@@ -32,12 +32,12 @@ async def fn(
     path: str,
     offset: int | None = None,
     limit: int | None = None,
-) -> str:
+) -> ToolResult:
     """Read a UTF-8 text file with optional line offset and limit."""
 
     content = _execute(path)
     selection = _parse_output(content, offset, limit)
-    return _format_results(selection, path)
+    return ToolResult.text(_format_results(selection, path))
 
 
 def _execute(path: str) -> str:

@@ -1,8 +1,5 @@
-import json
 from collections.abc import AsyncIterator, Sequence
 from typing import Literal
-
-from pydantic import JsonValue
 
 from ai.types.contracts import Reasoning
 from ai.types.conversation import (
@@ -28,7 +25,7 @@ from ai.types.stream import (
     ToolCallDeltaEvent,
     ToolCallEndEvent,
 )
-from ai.types.tools import JsonObject, ToolDefinition, ToolFunction
+from ai.types.tools import JsonObject, ToolDefinition, ToolFunction, ToolResult
 from agent.prompt import PROMPT
 from agent.types import (
     AgentEndEvent,
@@ -217,28 +214,28 @@ class Agent:
             arguments=arguments,
         )
 
-        result = await self._call_tool(tool_name, arguments)
+        result, is_error = await self._call_tool(tool_name, arguments)
         yield ToolExecutionEndEvent(
             call_id=call_id,
             tool_name=tool_name,
             result=result,
-            is_error=isinstance(result, dict) and "error" in result,
+            is_error=is_error,
         )
 
     async def _call_tool(
         self,
         tool_name: str,
         arguments: JsonObject,
-    ) -> JsonValue:
+    ) -> tuple[ToolResult, bool]:
         """Resolve and call a tool while normalizing tool failures."""
 
         try:
             tool = await self._get_tool(tool_name)
             if tool is None:
-                return {"error": f"Tool '{tool_name}' not found"}
-            return await tool(**arguments)
+                return ToolResult.text(f"Tool '{tool_name}' not found"), True
+            return await tool(**arguments), False
         except Exception as error:
-            return {"error": str(error)}
+            return ToolResult.text(str(error)), True
 
     async def _get_tool(
         self,
@@ -282,6 +279,6 @@ def _build_tool_result_turn(event: ToolExecutionEndEvent) -> ToolResultTurn:
     return ToolResultTurn(
         call_id=event.call_id,
         tool_name=event.tool_name,
-        content=json.dumps(event.result),
+        content=event.result.content,
         is_error=event.is_error,
     )

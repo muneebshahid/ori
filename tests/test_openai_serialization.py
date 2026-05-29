@@ -1,4 +1,4 @@
-from pydantic import JsonValue, TypeAdapter
+from pydantic import TypeAdapter
 
 from ai.openai.serialization import (
     serialize_history_items,
@@ -7,14 +7,14 @@ from ai.openai.serialization import (
 )
 from ai.types.conversation import AssistantTurn, ToolResultTurn, UserMessage
 from ai.types.stream import ReasoningBlock, TextBlock, ToolCallBlock
-from ai.types.tools import ToolDefinition
+from ai.types.tools import ToolDefinition, ToolImageContent, ToolResult
 from openai.types.responses.response_input_param import ResponseInputParam
 
 
-async def _sample_tool_fn(city: str) -> JsonValue:
+async def _sample_tool_fn(city: str) -> ToolResult:
     """Return a deterministic payload for serialization-only tool definitions."""
 
-    return {"city": city}
+    return ToolResult.text(f"city={city}")
 
 
 def test_serialize_response_input_flattens_sample_thread() -> None:
@@ -187,7 +187,7 @@ def test_serialize_history_items_replays_tool_calls_and_tool_results() -> None:
         ToolResultTurn(
             call_id="call_123",
             tool_name="get_weather",
-            content="Temperature: 14 C",
+            content=ToolResult.text("Temperature: 14 C").content,
             is_error=False,
         ),
     ]
@@ -220,6 +220,40 @@ def test_serialize_history_items_replays_tool_calls_and_tool_results() -> None:
             "call_id": "call_123",
             "output": "Temperature: 14 C",
         },
+    ]
+    TypeAdapter(ResponseInputParam).validate_python(serialized)
+
+
+def test_serialize_history_items_replays_tool_result_images() -> None:
+    """Serialize image tool results as OpenAI Responses content parts."""
+
+    history = [
+        ToolResultTurn(
+            call_id="call_123",
+            tool_name="read",
+            content=ToolResult.image(
+                "Read image file [image/png]",
+                ToolImageContent(data="ZmFrZQ==", mime_type="image/png"),
+            ).content,
+            is_error=False,
+        )
+    ]
+
+    serialized = serialize_history_items(history)
+
+    assert serialized == [
+        {
+            "type": "function_call_output",
+            "call_id": "call_123",
+            "output": [
+                {"type": "input_text", "text": "Read image file [image/png]"},
+                {
+                    "type": "input_image",
+                    "image_url": "data:image/png;base64,ZmFrZQ==",
+                    "detail": "auto",
+                },
+            ],
+        }
     ]
     TypeAdapter(ResponseInputParam).validate_python(serialized)
 

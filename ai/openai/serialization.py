@@ -7,6 +7,13 @@ from openai.types.responses.easy_input_message_param import EasyInputMessagePara
 from openai.types.responses.response_input_param import ResponseInputParam
 from openai.types.responses.response_input_param import (
     FunctionCallOutput as ResponseFunctionCallOutputParam,
+    ResponseFunctionCallOutputItemListParam,
+)
+from openai.types.responses.response_input_image_content_param import (
+    ResponseInputImageContentParam,
+)
+from openai.types.responses.response_input_text_content_param import (
+    ResponseInputTextContentParam,
 )
 from openai.types.responses.response_function_tool_call_param import (
     ResponseFunctionToolCallParam,
@@ -27,7 +34,12 @@ from ai.types.conversation import (
     UserMessage,
 )
 from ai.types.stream import ReasoningBlock, TextBlock, ToolCallBlock
-from ai.types.tools import ToolDefinition
+from ai.types.tools import (
+    ToolDefinition,
+    ToolImageContent,
+    ToolResultContent,
+    ToolTextContent,
+)
 
 
 def serialize_response_input(
@@ -189,13 +201,60 @@ def _serialize_tool_result_turn(
     return {
         "type": "function_call_output",
         "call_id": turn.call_id,
-        "output": turn.content,
+        "output": _serialize_tool_result_content(turn.content),
     }
+
+
+def _serialize_tool_result_content(
+    content: list[ToolResultContent],
+) -> str | ResponseFunctionCallOutputItemListParam:
+    """Serialize provider-neutral tool result content for OpenAI Responses."""
+
+    if _is_text_only_tool_result(content):
+        text_blocks = [block for block in content if isinstance(block, ToolTextContent)]
+        return "\n".join(block.text for block in text_blocks)
+
+    parts: ResponseFunctionCallOutputItemListParam = []
+    for block in content:
+        if isinstance(block, ToolImageContent):
+            parts.append(_build_input_image(block))
+        else:
+            parts.append(_build_tool_input_text(block.text))
+    return parts
+
+
+def _is_text_only_tool_result(content: list[ToolResultContent]) -> bool:
+    """Return whether a tool result can be replayed as plain text."""
+
+    return all(block.type == "text" for block in content)
 
 
 def _build_input_text(
     text: str,
 ) -> ResponseInputTextParam:
+    return {
+        "type": "input_text",
+        "text": text,
+    }
+
+
+def _build_input_image(
+    image: ToolImageContent,
+) -> ResponseInputImageContentParam:
+    """Build an OpenAI Responses image content part."""
+
+    return {
+        "type": "input_image",
+        "image_url": f"data:{image.mime_type};base64,{image.data}",
+        "detail": "auto",
+    }
+
+
+def _build_tool_input_text(
+    text: str,
+) -> ResponseInputTextContentParam:
+    """Build an OpenAI Responses text content part for tool outputs."""
+
     return {
         "type": "input_text",
         "text": text,

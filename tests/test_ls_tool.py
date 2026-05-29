@@ -7,6 +7,7 @@ import pytest
 
 import agent.tools.ls as ls
 import agent.tools.truncation as truncation
+from ai.types.tools import ToolResult, ToolTextContent
 
 
 def test_ls_schema_requires_only_path() -> None:
@@ -80,7 +81,7 @@ def mixed_case_directory(tmp_path: Path) -> Path:
 async def test_ls_returns_all_directory_entries(populated_directory: Path) -> None:
     """Return every file and directory name when the result is under the limit."""
 
-    result = await ls.fn(path=str(populated_directory), limit=10)
+    result = _text(await ls.fn(path=str(populated_directory), limit=10))
 
     assert result.splitlines() == ["README.md", "src/", "uv.lock"]
 
@@ -91,7 +92,7 @@ async def test_ls_respects_limit_after_sorting_entries(
 ) -> None:
     """Return only the first sorted entries up to the requested limit."""
 
-    result = await ls.fn(path=str(unsorted_directory), limit=2)
+    result = _text(await ls.fn(path=str(unsorted_directory), limit=2))
 
     assert result.splitlines() == [
         "a.txt",
@@ -105,7 +106,7 @@ async def test_ls_respects_limit_after_sorting_entries(
 async def test_ls_clamps_limit_to_one(unsorted_directory: Path) -> None:
     """Keep entry limits positive when callers pass a low limit."""
 
-    result = await ls.fn(path=str(unsorted_directory), limit=0)
+    result = _text(await ls.fn(path=str(unsorted_directory), limit=0))
 
     assert result.splitlines() == [
         "a.txt",
@@ -120,7 +121,7 @@ async def test_ls_reports_byte_limit(long_directory: Callable[[int], Path]) -> N
 
     path = long_directory(270)
 
-    result = await ls.fn(path=str(path), limit=500)
+    result = _text(await ls.fn(path=str(path), limit=500))
     notice = "\n\n[50.0KB limit reached. Directory has 270 entries]"
     entries = ls._list_directory_entries(str(path))
     body = result.removesuffix(notice)
@@ -138,7 +139,7 @@ async def test_ls_reports_first_truncation_boundary(
 
     path = long_directory(300)
 
-    result = await ls.fn(path=str(path), limit=260)
+    result = _text(await ls.fn(path=str(path), limit=260))
 
     assert result.endswith("\n\n[50.0KB limit reached. Directory has 300 entries]")
 
@@ -149,7 +150,7 @@ async def test_ls_appends_slash_to_directories(
 ) -> None:
     """Mark directory entries with a trailing slash and leave files unchanged."""
 
-    result = await ls.fn(path=str(directory_with_child_directory), limit=10)
+    result = _text(await ls.fn(path=str(directory_with_child_directory), limit=10))
 
     assert result.splitlines() == ["file.txt", "folder/"]
 
@@ -160,7 +161,7 @@ async def test_ls_includes_dotfiles_and_dot_directories(
 ) -> None:
     """Include hidden files and hidden directories in directory listings."""
 
-    result = await ls.fn(path=str(hidden_entries_directory), limit=10)
+    result = _text(await ls.fn(path=str(hidden_entries_directory), limit=10))
 
     assert result.splitlines() == [".hidden-dir/", ".hidden-file"]
 
@@ -171,7 +172,7 @@ async def test_ls_sorts_entries_case_insensitively(
 ) -> None:
     """Sort entries alphabetically without separating upper and lower case names."""
 
-    result = await ls.fn(path=str(mixed_case_directory), limit=10)
+    result = _text(await ls.fn(path=str(mixed_case_directory), limit=10))
 
     assert result.splitlines() == ["Alpha.txt", "beta.txt", "charlie.txt"]
 
@@ -180,7 +181,7 @@ async def test_ls_sorts_entries_case_insensitively(
 async def test_ls_reports_empty_directory(tmp_path: Path) -> None:
     """Return an explicit marker for empty directories."""
 
-    result = await ls.fn(path=str(tmp_path), limit=10)
+    result = _text(await ls.fn(path=str(tmp_path), limit=10))
 
     assert result == "(empty directory)"
 
@@ -221,3 +222,12 @@ def _create_long_file_names(path: Path, count: int) -> None:
 
     for index in range(count):
         _create_file(path / f"{index:03d}-{'x' * 196}.txt")
+
+
+def _text(result: ToolResult) -> str:
+    """Return the single text block from a tool result."""
+
+    assert len(result.content) == 1
+    content = result.content[0]
+    assert isinstance(content, ToolTextContent)
+    return content.text

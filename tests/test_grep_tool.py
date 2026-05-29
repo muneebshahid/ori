@@ -9,6 +9,7 @@ import pytest
 import agent.tools.executables as executables
 import agent.tools.grep as grep
 import agent.tools.truncation as truncation
+from ai.types.tools import ToolResult, ToolTextContent
 
 
 def test_schema_requires_only_pattern() -> None:
@@ -113,7 +114,7 @@ async def test_fn_returns_results_when_command_is_available(
 
     execution.return_value = _event("match", "example.txt", 2, "needle line\n")
 
-    result = await grep.fn(pattern="needle")
+    result = _text(await grep.fn(pattern="needle"))
 
     assert result == "example.txt:2: needle line"
 
@@ -132,7 +133,7 @@ async def test_fn_returns_multiple_result_lines(
         ]
     )
 
-    result = await grep.fn(pattern="needle")
+    result = _text(await grep.fn(pattern="needle"))
 
     assert result == "one.txt:1: needle one\ntwo.txt:2: needle two"
 
@@ -400,3 +401,12 @@ def _event(
             },
         }
     )
+
+
+def _text(result: ToolResult) -> str:
+    """Return the single text block from a tool result."""
+
+    assert len(result.content) == 1
+    content = result.content[0]
+    assert isinstance(content, ToolTextContent)
+    return content.text

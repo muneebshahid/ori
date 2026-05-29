@@ -3,6 +3,7 @@ from typing import Literal, TypeAlias
 from pydantic import BaseModel, Field
 
 from ai.types.stream import AssistantBlock, StopReason
+from ai.types.tools import ToolResultContent
 
 
 class UserMessage(BaseModel):
@@ -29,7 +30,7 @@ class ToolResultTurn(BaseModel):
     role: Literal["tool_result"] = "tool_result"
     call_id: str
     tool_name: str
-    content: str
+    content: list[ToolResultContent]
     is_error: bool = False
 
 

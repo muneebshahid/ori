@@ -1,7 +1,7 @@
 from collections.abc import Awaitable, Sequence
 from typing import Literal, Protocol, TypeAlias
 
-from pydantic import BaseModel, JsonValue
+from pydantic import BaseModel
 
 from ai.types.contracts import AsyncEventStream, Reasoning
 from ai.types.conversation import AssistantTurn, ConversationItem, ToolResultTurn
@@ -17,7 +17,7 @@ from ai.types.stream import (
     ToolCallEndEvent,
     ToolCallStartEvent,
 )
-from ai.types.tools import JsonObject, ToolDefinition
+from ai.types.tools import JsonObject, ToolDefinition, ToolResult
 
 AssistantMessageUpdateEvent: TypeAlias = (
     ReasoningStartEvent
@@ -108,7 +108,7 @@ class ToolExecutionEndEvent(BaseModel):
     type: Literal["tool_execution_end"] = "tool_execution_end"
     call_id: str
     tool_name: str
-    result: JsonValue
+    result: ToolResult
     is_error: bool
 
 

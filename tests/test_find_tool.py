@@ -7,6 +7,7 @@ import pytest
 import agent.tools.executables as executables
 import agent.tools.find as find
 import agent.tools.truncation as truncation
+from ai.types.tools import ToolResult, ToolTextContent
 
 
 def test_find_schema_requires_only_pattern() -> None:
@@ -57,7 +58,7 @@ async def test_fn_uses_default_file_search_flags(
 
     execution.return_value = "./agent/tools/find.py\n"
 
-    result = await find.fn(pattern="*.py")
+    result = _text(await find.fn(pattern="*.py"))
 
     assert result == "agent/tools/find.py"
     execution.assert_awaited_once_with(
@@ -85,7 +86,7 @@ async def test_fn_uses_full_path_for_path_patterns(
 
     execution.return_value = "./agent/tools/find.py\n"
 
-    result = await find.fn(pattern="agent/**/*.py", path=".", limit=25)
+    result = _text(await find.fn(pattern="agent/**/*.py", path=".", limit=25))
 
     assert result == "agent/tools/find.py"
     assert _captured_args(execution) == [
@@ -111,7 +112,7 @@ async def test_fn_normalizes_root_relative_full_path_pattern(
 
     execution.return_value = "./agent/tools/find.py\n"
 
-    result = await find.fn(pattern="/tools/*.py", path=".", limit=25)
+    result = _text(await find.fn(pattern="/tools/*.py", path=".", limit=25))
 
     assert result == "agent/tools/find.py"
     assert _captured_args(execution)[-3:] == ["--", "**/tools/*.py", "."]
@@ -126,7 +127,7 @@ async def test_fn_preserves_prefixed_full_path_pattern(
 
     execution.return_value = "./agent/tools/find.py\n"
 
-    result = await find.fn(pattern="**/tools/*.py", path=".", limit=25)
+    result = _text(await find.fn(pattern="**/tools/*.py", path=".", limit=25))
 
     assert result == "agent/tools/find.py"
     assert _captured_args(execution)[-3:] == ["--", "**/tools/*.py", "."]
@@ -139,7 +140,7 @@ async def test_fn_clamps_limit_to_one(execution: AsyncMock) -> None:
 
     execution.return_value = "./a.py\n./b.py\n"
 
-    result = await find.fn(pattern="*.py", limit=0)
+    result = _text(await find.fn(pattern="*.py", limit=0))
 
     assert (
         result
@@ -157,7 +158,7 @@ async def test_fn_returns_no_matches_when_fd_output_is_empty(
 
     execution.return_value = ""
 
-    result = await find.fn(pattern="*.missing")
+    result = _text(await find.fn(pattern="*.missing"))
 
     assert result == "No files found matching pattern"
 
@@ -182,7 +183,7 @@ async def test_fn_normalizes_paths_and_reports_result_limit(
         ".\\agent\\tools\\find.py\n./tests/test_find_tool.py\n./extra.py\n"
     )
 
-    result = await find.fn(pattern="*.py", limit=2)
+    result = _text(await find.fn(pattern="*.py", limit=2))
 
     assert result == (
         "agent/tools/find.py\ntests/test_find_tool.py\n\n"
@@ -199,7 +200,7 @@ async def test_fn_reports_result_limit_when_result_boundary_is_first(
 
     execution.return_value = "./a.py\n./b.py\n"
 
-    result = await find.fn(pattern="*.py", limit=1)
+    result = _text(await find.fn(pattern="*.py", limit=1))
 
     assert result == (
         "a.py\n\n[1 results limit reached. Use limit=2 for more, or refine pattern]"
@@ -214,7 +215,7 @@ async def test_fn_reports_byte_limit(execution: AsyncMock) -> None:
     stdout = "\n".join(f"./{index:03d}-{'x' * 196}.py" for index in range(300))
     execution.return_value = f"{stdout}\n"
 
-    result = await find.fn(pattern="*.py", limit=1000)
+    result = _text(await find.fn(pattern="*.py", limit=1000))
     notice = "\n\n[50.0KB limit reached]"
     body = result.removesuffix(notice)
 
@@ -232,7 +233,7 @@ async def test_fn_reports_byte_limit_when_byte_boundary_is_first(
     stdout = "\n".join(f"./{index:03d}-{'x' * 196}.py" for index in range(300))
     execution.return_value = f"{stdout}\n"
 
-    result = await find.fn(pattern="*.py", limit=260)
+    result = _text(await find.fn(pattern="*.py", limit=260))
 
     assert result.endswith("\n\n[50.0KB limit reached]")
     assert "results limit reached" not in result
@@ -262,3 +263,12 @@ def _find_no_commands(command: str) -> None:
 
     _ = command
     return None
+
+
+def _text(result: ToolResult) -> str:
+    """Return the single text block from a tool result."""
+
+    assert len(result.content) == 1
+    content = result.content[0]
+    assert isinstance(content, ToolTextContent)
+    return content.text

@@ -43,7 +43,7 @@ from ai.types.stream import (
     ToolCallEndEvent,
     ToolCallStartEvent,
 )
-from ai.types.tools import JsonObject, ToolDefinition
+from ai.types.tools import JsonObject, ToolDefinition, ToolResult
 from openai.types.responses.response_completed_event import ResponseCompletedEvent
 from openai.types.responses.response_content_part_added_event import (
     ResponseContentPartAddedEvent,
@@ -637,10 +637,10 @@ def _sample_tools() -> list[ToolDefinition]:
     ]
 
 
-async def _sample_tool_fn(city: str) -> JsonObject:
+async def _sample_tool_fn(city: str) -> ToolResult:
     """Return a deterministic payload for provider-only tool definitions."""
 
-    return {"city": city}
+    return ToolResult.text(f"city={city}")
 
 
 def test_stream_maps_raw_events_with_shared_message_state() -> None:

@@ -13,8 +13,6 @@ from dataclasses import dataclass
 from typing import TypeVar, cast
 from unittest.mock import AsyncMock
 
-from pydantic import JsonValue
-
 from agent.agent import Agent
 from agent.types import (
     AgentEndEvent,
@@ -54,7 +52,7 @@ from ai.types.stream import (
     ToolCallEndEvent,
     ToolCallStartEvent,
 )
-from ai.types.tools import ToolDefinition
+from ai.types.tools import ToolDefinition, ToolResult, ToolTextContent
 
 TEvent = TypeVar("TEvent", bound=AgentEvent)
 TStreamEvent = TypeVar("TStreamEvent", bound=StreamEvent)
@@ -149,6 +147,15 @@ def _expect_tool_result_turn(item: ConversationItem) -> ToolResultTurn:
     return item
 
 
+def _tool_text(result: ToolResult) -> str:
+    """Return the single text block from a tool result."""
+
+    assert len(result.content) == 1
+    content = result.content[0]
+    assert isinstance(content, ToolTextContent)
+    return content.text
+
+
 def _sample_tools() -> list[ToolDefinition]:
     return [
         ToolDefinition(
@@ -169,10 +176,12 @@ def _sample_tools() -> list[ToolDefinition]:
     ]
 
 
-async def _get_weather(city: str) -> JsonValue:
+async def _get_weather(city: str) -> ToolResult:
     """Return a deterministic weather payload for tests."""
 
-    return {"temperature_c": 18, "condition": "sunny", "city": city}
+    return ToolResult.text(
+        json.dumps({"temperature_c": 18, "condition": "sunny", "city": city})
+    )
 
 
 def test_add_user_message_appends_user_turn_to_history() -> None:
@@ -287,7 +296,11 @@ def test_agent_run_yields_current_events_for_tool_use_loop() -> None:
         ],
         invocations=invocations,
     )
-    tool = AsyncMock(return_value={"temperature_c": 18, "condition": "sunny"})
+    tool = AsyncMock(
+        return_value=ToolResult.text(
+            json.dumps({"temperature_c": 18, "condition": "sunny"})
+        )
+    )
     get_tool_mock = AsyncMock(return_value=tool)
     agent = Agent(stream_fn=stream_fn, model="gpt-5.4", tools=tools)
     agent._get_tool = get_tool_mock  # type: ignore[invalid-assignment]
@@ -379,10 +392,9 @@ def test_agent_run_yields_current_events_for_tool_use_loop() -> None:
     assert tool_execution_start.arguments == {"city": "Munich"}
     assert tool_execution_end.call_id == "call_123"
     assert tool_execution_end.tool_name == "get_weather"
-    assert tool_execution_end.result == {
-        "temperature_c": 18,
-        "condition": "sunny",
-    }
+    assert _tool_text(tool_execution_end.result) == (
+        '{"temperature_c": 18, "condition": "sunny"}'
+    )
     assert tool_execution_end.is_error is False
     assert first_turn_end.message.response_id == "resp_tool_call"
     assert first_turn_end.message.stop_reason == "tool_use"
@@ -397,9 +409,7 @@ def test_agent_run_yields_current_events_for_tool_use_loop() -> None:
     ]
     assert first_turn_end.tool_results[0].call_id == "call_123"
     assert first_turn_end.tool_results[0].tool_name == "get_weather"
-    assert (
-        json.loads(first_turn_end.tool_results[0].content) == tool_execution_end.result
-    )
+    assert first_turn_end.tool_results[0].content == tool_execution_end.result.content
     assert first_turn_end.tool_results[0].is_error is False
     assert second_turn_start.type == "turn_start"
     assert second_stream_message.response_id == "resp_follow_up"
@@ -491,11 +501,9 @@ def test_agent_run_executes_registered_tool_definition() -> None:
     events = _collect_run_events(agent)
 
     tool_execution_end = _expect_event_type(events[5], ToolExecutionEndEvent)
-    assert tool_execution_end.result == {
-        "temperature_c": 18,
-        "condition": "sunny",
-        "city": "Munich",
-    }
+    assert _tool_text(tool_execution_end.result) == (
+        '{"temperature_c": 18, "condition": "sunny", "city": "Munich"}'
+    )
     assert tool_execution_end.is_error is False
 
 

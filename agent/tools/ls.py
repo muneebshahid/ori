@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from ai.types.tools import ToolDefinition
+from ai.types.tools import ToolDefinition, ToolResult
 
 from agent.tools.truncation import OUTPUT_BYTE_LIMIT_LABEL, truncate_head
 
@@ -17,13 +17,13 @@ class Results(BaseModel):
     entries: list[str]
 
 
-async def fn(path: str = ".", limit: int = 500) -> str:
+async def fn(path: str = ".", limit: int = 500) -> ToolResult:
     """List the contents of a directory."""
 
     limit = max(1, limit)
     output = await _execute(path)
     results = _parse_output(output)
-    return _format_results(results, limit)
+    return ToolResult.text(_format_results(results, limit))
 
 
 async def _execute(path: str) -> list[str]:
