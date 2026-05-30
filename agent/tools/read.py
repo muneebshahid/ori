@@ -8,6 +8,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from ai.types.tools import ImageMimeType, ToolDefinition, ToolImageContent, ToolResult
+from agent.tools.image_processing import process_image
 from agent.tools.truncation import (
     OUTPUT_BYTE_LIMIT,
     OUTPUT_BYTE_LIMIT_LABEL,
@@ -100,10 +101,11 @@ def _resolve_path(path: str) -> Path:
 def _read_image(path: Path, mime_type: ImageMimeType) -> ToolResult:
     """Read an image file and return base64 image content."""
 
-    encoded_image = base64.b64encode(path.read_bytes()).decode("ascii")
+    processed_image = process_image(path.read_bytes(), mime_type)
+    encoded_image = base64.b64encode(processed_image.data).decode("ascii")
     return ToolResult.image(
-        f'<file name="{path}">[{mime_type}]</file>',
-        ToolImageContent(data=encoded_image, mime_type=mime_type),
+        f'<file name="{path}">[{processed_image.mime_type}]</file>',
+        ToolImageContent(data=encoded_image, mime_type=processed_image.mime_type),
     )
 
 
