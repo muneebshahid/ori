@@ -1,10 +1,17 @@
 """Tests for image processing before model submission."""
 
+import base64
 from io import BytesIO
 
+import pytest
 from PIL import Image
 
-from agent.tools.image_processing import process_image
+from agent.tools.image_processing import (
+    ImageProcessingError,
+    ImageProcessingOptions,
+    ProcessedImage,
+    process_image,
+)
 
 
 def test_process_image_applies_jpeg_exif_orientation() -> None:
@@ -12,12 +19,13 @@ def test_process_image_applies_jpeg_exif_orientation() -> None:
 
     original = _jpeg_with_orientation(width=2, height=3, orientation=6)
 
-    processed = process_image(original, "image/jpeg")
+    processed = _processed(process_image(original, "image/jpeg"))
 
     with Image.open(BytesIO(processed.data)) as image:
         assert processed.mime_type == "image/jpeg"
         assert image.size == (3, 2)
         assert image.getexif().get(274) is None
+        assert processed.was_resized is False
 
 
 def test_process_image_preserves_jpeg_without_exif_orientation() -> None:
@@ -25,21 +33,81 @@ def test_process_image_preserves_jpeg_without_exif_orientation() -> None:
 
     original = _jpeg(width=2, height=3)
 
-    processed = process_image(original, "image/jpeg")
+    processed = _processed(process_image(original, "image/jpeg"))
 
     assert processed.data == original
     assert processed.mime_type == "image/jpeg"
 
 
-def test_process_image_preserves_non_jpeg_bytes() -> None:
-    """Leave non-JPEG image bytes unchanged for the first pipeline step."""
+def test_process_image_preserves_small_png_bytes() -> None:
+    """Leave small PNG image bytes unchanged when they fit all limits."""
 
-    original = b"not-real-png-bytes"
+    original = _png(width=2, height=3)
 
-    processed = process_image(original, "image/png")
+    processed = _processed(process_image(original, "image/png"))
 
     assert processed.data == original
     assert processed.mime_type == "image/png"
+
+
+def test_process_image_resizes_to_dimension_limits() -> None:
+    """Resize images to fit within max width and height."""
+
+    original = _png(width=8, height=4)
+
+    processed = _processed(
+        process_image(
+            original,
+            "image/png",
+            ImageProcessingOptions(max_width=4, max_height=4),
+        )
+    )
+
+    assert processed.width == 4
+    assert processed.height == 2
+    assert processed.was_resized is True
+    assert processed.dimension_note() == (
+        "[Image: original 8x4, displayed at 4x2. "
+        "Multiply coordinates by 2.00 to map to original image.]"
+    )
+
+
+def test_process_image_reduces_until_base64_payload_fits() -> None:
+    """Progressively reduce dimensions until the base64 payload fits."""
+
+    original = _png(width=64, height=64)
+
+    processed = _processed(
+        process_image(
+            original,
+            "image/png",
+            ImageProcessingOptions(
+                max_width=64,
+                max_height=64,
+                max_base64_bytes=800,
+            ),
+        )
+    )
+
+    assert processed.width < 64
+    assert processed.height < 64
+    assert len(base64.b64encode(processed.data)) < 800
+
+
+def test_process_image_returns_omission_when_no_candidate_fits() -> None:
+    """Return an omission result when even the smallest image is too large."""
+
+    original = _png(width=8, height=8)
+
+    with pytest.raises(
+        ImageProcessingError,
+        match="could not be resized below the inline image size limit",
+    ):
+        process_image(
+            original,
+            "image/png",
+            ImageProcessingOptions(max_width=1, max_height=1, max_base64_bytes=1),
+        )
 
 
 def _jpeg(width: int, height: int) -> bytes:
@@ -60,3 +128,22 @@ def _jpeg_with_orientation(width: int, height: int, orientation: int) -> bytes:
     output = BytesIO()
     image.save(output, format="JPEG", exif=exif)
     return output.getvalue()
+
+
+def _png(width: int, height: int) -> bytes:
+    """Return PNG bytes for a deterministic image."""
+
+    image = Image.new("RGB", (width, height))
+    for x in range(width):
+        for y in range(height):
+            image.putpixel((x, y), ((x * 17) % 256, (y * 31) % 256, (x * y) % 256))
+    output = BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
+
+
+def _processed(result: object) -> ProcessedImage:
+    """Return a processed image from a pipeline result."""
+
+    assert isinstance(result, ProcessedImage)
+    return result

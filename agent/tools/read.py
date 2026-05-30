@@ -8,7 +8,11 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from ai.types.tools import ImageMimeType, ToolDefinition, ToolImageContent, ToolResult
-from agent.tools.image_processing import process_image
+from agent.tools.image_processing import (
+    ImageProcessingError,
+    ProcessedImage,
+    process_image,
+)
 from agent.tools.truncation import (
     OUTPUT_BYTE_LIMIT,
     OUTPUT_BYTE_LIMIT_LABEL,
@@ -101,12 +105,33 @@ def _resolve_path(path: str) -> Path:
 def _read_image(path: Path, mime_type: ImageMimeType) -> ToolResult:
     """Read an image file and return base64 image content."""
 
-    processed_image = process_image(path.read_bytes(), mime_type)
-    encoded_image = base64.b64encode(processed_image.data).decode("ascii")
+    try:
+        processed_image = process_image(path.read_bytes(), mime_type)
+    except ImageProcessingError as error:
+        return ToolResult.text(f'<file name="{path}">[Image omitted: {error}.]</file>')
+
+    return _format_image_result(path, processed_image)
+
+
+def _format_image_result(path: Path, image: ProcessedImage) -> ToolResult:
+    """Format a processed image as text metadata plus image content."""
+
+    encoded_image = base64.b64encode(image.data).decode("ascii")
+    text = _format_image_text(path, image)
     return ToolResult.image(
-        f'<file name="{path}">[{processed_image.mime_type}]</file>',
-        ToolImageContent(data=encoded_image, mime_type=processed_image.mime_type),
+        text,
+        ToolImageContent(data=encoded_image, mime_type=image.mime_type),
     )
+
+
+def _format_image_text(path: Path, image: ProcessedImage) -> str:
+    """Format image metadata for the model-visible text block."""
+
+    content = f"[{image.mime_type}]"
+    dimension_note = image.dimension_note()
+    if dimension_note is not None:
+        content = f"{content}\n{dimension_note}"
+    return f'<file name="{path}">{content}</file>'
 
 
 def _detect_supported_image_mime_type(path: Path) -> ImageMimeType | None:
