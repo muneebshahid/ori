@@ -1,4 +1,9 @@
-"""File write tool scaffold for the default agent."""
+"""File write tool for the default agent."""
+
+import asyncio
+from pathlib import Path
+
+from pydantic import BaseModel
 
 from ai.types.tools import ToolDefinition, ToolResult
 
@@ -6,8 +11,45 @@ from ai.types.tools import ToolDefinition, ToolResult
 async def fn(path: str, content: str) -> ToolResult:
     """Write content to a file."""
 
-    _ = path, content
-    raise NotImplementedError("write tool execution is not implemented yet")
+    resolved_path = _resolve_path(path)
+    result = await _execute(resolved_path, content)
+    return ToolResult.text(_format_results(result))
+
+
+async def _execute(path: Path, content: str) -> "Results":
+    """Write file content asynchronously."""
+
+    return await asyncio.to_thread(_write_file, path, content)
+
+
+class Results(BaseModel):
+    """Structured file write result."""
+
+    path: Path
+    bytes_written: int
+
+
+def _format_results(result: Results) -> str:
+    """Format a successful write result."""
+
+    return f"Successfully wrote {result.bytes_written} bytes to {result.path}"
+
+
+def _resolve_path(path: str) -> Path:
+    """Resolve a user-provided path for writing."""
+
+    candidate = Path(path).expanduser()
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
+    return candidate.resolve(strict=False)
+
+
+def _write_file(path: Path, content: str) -> Results:
+    """Create parent directories and write UTF-8 content to a file."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return Results(path=path, bytes_written=len(content.encode("utf-8")))
 
 
 tool = ToolDefinition(

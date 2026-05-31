@@ -1,6 +1,11 @@
-"""Tests for the default file write tool scaffold."""
+"""Tests for the default file write tool."""
+
+from pathlib import Path
+
+import pytest
 
 import agent.tools.write as write
+from ai.types.tools import ToolResult, ToolTextContent
 
 
 def test_write_schema_requires_path_and_content() -> None:
@@ -17,3 +22,91 @@ def test_write_schema_exposes_write_controls() -> None:
     assert write.tool.name == "write"
     assert isinstance(properties, dict)
     assert set(properties) == {"path", "content"}
+
+
+@pytest.mark.asyncio
+async def test_write_creates_file_and_parent_directories(tmp_path: Path) -> None:
+    """Create parent directories and write UTF-8 content to a new file."""
+
+    file_path = tmp_path / "nested" / "sample.txt"
+
+    result = _text(await write.fn(path=str(file_path), content="hello"))
+
+    assert file_path.read_text(encoding="utf-8") == "hello"
+    assert result == f"Successfully wrote 5 bytes to {file_path}"
+
+
+@pytest.mark.asyncio
+async def test_write_overwrites_existing_file(tmp_path: Path) -> None:
+    """Overwrite existing files with the supplied content."""
+
+    file_path = tmp_path / "sample.txt"
+    file_path.write_text("old", encoding="utf-8")
+
+    result = _text(await write.fn(path=str(file_path), content="new"))
+
+    assert file_path.read_text(encoding="utf-8") == "new"
+    assert result == f"Successfully wrote 3 bytes to {file_path}"
+
+
+@pytest.mark.asyncio
+async def test_write_reports_utf8_byte_count(tmp_path: Path) -> None:
+    """Report the real UTF-8 byte count of written content."""
+
+    file_path = tmp_path / "sample.txt"
+
+    result = _text(await write.fn(path=str(file_path), content="é"))
+
+    assert result == f"Successfully wrote 2 bytes to {file_path}"
+
+
+@pytest.mark.asyncio
+async def test_write_resolves_relative_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Resolve relative paths against the current working directory."""
+
+    monkeypatch.chdir(tmp_path)
+
+    result = _text(await write.fn(path="relative/sample.txt", content="hello"))
+
+    file_path = tmp_path / "relative" / "sample.txt"
+    assert file_path.read_text(encoding="utf-8") == "hello"
+    assert result == f"Successfully wrote 5 bytes to {file_path}"
+
+
+@pytest.mark.asyncio
+async def test_write_expands_home_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Expand home-directory markers in write paths."""
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = _text(await write.fn(path="~/sample.txt", content="hello"))
+
+    file_path = tmp_path / "sample.txt"
+    assert file_path.read_text(encoding="utf-8") == "hello"
+    assert result == f"Successfully wrote 5 bytes to {file_path}"
+
+
+@pytest.mark.asyncio
+async def test_write_raises_when_parent_path_is_file(tmp_path: Path) -> None:
+    """Raise filesystem errors so the agent can mark write failures."""
+
+    parent = tmp_path / "parent"
+    parent.write_text("not a directory", encoding="utf-8")
+
+    with pytest.raises(FileExistsError):
+        await write.fn(path=str(parent / "sample.txt"), content="hello")
+
+
+def _text(result: ToolResult) -> str:
+    """Return the single text block from a tool result."""
+
+    assert len(result.content) == 1
+    content = result.content[0]
+    assert isinstance(content, ToolTextContent)
+    return content.text
