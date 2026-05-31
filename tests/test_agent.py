@@ -10,6 +10,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TypeVar, cast
 from unittest.mock import AsyncMock
 
@@ -505,6 +506,70 @@ def test_agent_run_executes_registered_tool_definition() -> None:
         '{"temperature_c": 18, "condition": "sunny", "city": "Munich"}'
     )
     assert tool_execution_end.is_error is False
+
+
+def test_agent_includes_cwd_in_stream_instructions(tmp_path: Path) -> None:
+    """Add the agent working directory to model instructions."""
+
+    invocations: list[StreamInvocation] = []
+    stream_fn = _build_stream_fn(
+        streams=[
+            [
+                StreamStartEvent(
+                    type="start",
+                    message=AssistantMessage(response_id="resp_done"),
+                ),
+                StreamDoneEvent(
+                    type="done",
+                    message=AssistantMessage(response_id="resp_done"),
+                ),
+            ]
+        ],
+        invocations=invocations,
+    )
+    agent = Agent(
+        stream_fn=stream_fn,
+        model="gpt-5.4",
+        system_prompt="Base prompt.",
+        cwd=tmp_path,
+    )
+    agent.add_user_message("Hello")
+
+    _collect_run_events(agent)
+
+    assert invocations[0].instructions == "Base prompt."
+
+
+def test_agent_formats_cwd_prompt_variable(tmp_path: Path) -> None:
+    """Apply cwd prompt variables before sending model instructions."""
+
+    invocations: list[StreamInvocation] = []
+    stream_fn = _build_stream_fn(
+        streams=[
+            [
+                StreamStartEvent(
+                    type="start",
+                    message=AssistantMessage(response_id="resp_done"),
+                ),
+                StreamDoneEvent(
+                    type="done",
+                    message=AssistantMessage(response_id="resp_done"),
+                ),
+            ]
+        ],
+        invocations=invocations,
+    )
+    agent = Agent(
+        stream_fn=stream_fn,
+        model="gpt-5.4",
+        system_prompt="Current working directory: {cwd}",
+        cwd=tmp_path,
+    )
+    agent.add_user_message("Hello")
+
+    _collect_run_events(agent)
+
+    assert invocations[0].instructions == f"Current working directory: {tmp_path}"
 
 
 def test_agent_run_yields_error_turn_end_for_stream_error() -> None:

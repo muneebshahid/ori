@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator, Sequence
+from pathlib import Path
 from typing import Literal
 
 from ai.types.contracts import Reasoning
@@ -26,7 +27,7 @@ from ai.types.stream import (
     ToolCallEndEvent,
 )
 from ai.types.tools import JsonObject, ToolDefinition, ToolFunction, ToolResult
-from agent.prompt import PROMPT
+from agent.prompt import PROMPT, build_system_prompt
 from agent.types import (
     AgentEndEvent,
     AgentEvent,
@@ -63,6 +64,7 @@ class Agent:
         tools: Sequence[ToolDefinition] | None = None,
         history: Sequence[ConversationItem] | None = None,
         system_prompt: str | None = None,
+        cwd: Path | str | None = None,
     ) -> None:
         self._stream_fn = stream_fn
         self._model = model
@@ -70,6 +72,7 @@ class Agent:
         self._tools = tuple(tools or ())
         self._history = list(history or [])
         self._system_prompt = system_prompt or PROMPT
+        self._cwd = _resolve_cwd(cwd)
 
     def update_model(self, model: str) -> None:
         self._model = model
@@ -104,7 +107,7 @@ class Agent:
             stream = await self._stream_fn(
                 self._history,
                 self._model,
-                instructions=self._system_prompt,
+                instructions=build_system_prompt(self._system_prompt, self._cwd),
                 reasoning=self._reasoning,
                 tools=self._tools,
             )
@@ -265,6 +268,14 @@ def _build_assistant_turn(message: AssistantMessage) -> AssistantTurn:
         status=status,
         error_message=message.error_message,
     )
+
+
+def _resolve_cwd(cwd: Path | str | None) -> Path:
+    """Resolve the agent working directory."""
+
+    if cwd is None:
+        return Path.cwd().resolve()
+    return Path(cwd).expanduser().resolve()
 
 
 def _collect_tool_calls(message: AssistantMessage) -> list[ToolCallBlock]:
