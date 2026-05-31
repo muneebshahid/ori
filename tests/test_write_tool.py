@@ -1,7 +1,5 @@
 """Tests for the default file write tool scaffold."""
 
-import pytest
-
 import agent.tools.write as write
 
 
