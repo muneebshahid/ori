@@ -65,6 +65,8 @@ def _format_results(results: Results, limit: int, path: Path) -> FormattedResult
             text="(empty directory)",
             details=LsDetails(
                 path=str(path),
+                entries_returned=0,
+                total_entries=0,
             ),
         )
 
@@ -85,6 +87,8 @@ def _format_results(results: Results, limit: int, path: Path) -> FormattedResult
         text=result,
         details=LsDetails(
             path=str(path),
+            entries_returned=truncation.output_lines,
+            total_entries=len(results.entries),
             truncation=_build_truncation_details(truncation),
         ),
     )

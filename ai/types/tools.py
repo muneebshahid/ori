@@ -30,6 +30,8 @@ class LsDetails(BaseModel):
 
     type: Literal["ls"] = "ls"
     path: str
+    entries_returned: int
+    total_entries: int
     truncation: ToolTruncationDetails | None = None
 
 
