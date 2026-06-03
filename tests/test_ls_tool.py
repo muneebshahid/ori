@@ -10,10 +10,10 @@ import agent.tools.truncation as truncation
 from ai.types.tools import ToolResult, ToolTextContent
 
 
-def test_ls_schema_requires_only_path() -> None:
-    """Require only path so callers can omit optional limit."""
+def test_ls_schema_requires_no_arguments() -> None:
+    """Allow callers to omit path and limit."""
 
-    assert ls.tool.input_schema["required"] == ["path"]
+    assert ls.tool.input_schema["required"] == []
 
 
 @pytest.fixture
@@ -101,6 +101,17 @@ async def test_ls_resolves_relative_path_against_supplied_cwd(
     monkeypatch.chdir(other)
 
     result = _text(await ls.fn(path=".", limit=10, cwd=project))
+
+    assert result == "sample.txt"
+
+
+@pytest.mark.asyncio
+async def test_ls_uses_cwd_when_path_is_omitted(tmp_path: Path) -> None:
+    """List the supplied working directory when callers omit path."""
+
+    _create_file(tmp_path / "sample.txt")
+
+    result = _text(await ls.fn(limit=10, cwd=tmp_path))
 
     assert result == "sample.txt"
 

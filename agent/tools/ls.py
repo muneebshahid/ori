@@ -100,7 +100,7 @@ tool = ToolDefinition(
                 "description": "The maximum number of entries to list. Defaults to 500.",
             },
         },
-        "required": ["path"],
+        "required": [],
         "additionalProperties": False,
     },
     fn=fn,
