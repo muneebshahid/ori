@@ -251,6 +251,134 @@ async def test_edit_preserves_utf8_bom(tmp_path: Path) -> None:
     assert file_path.read_text(encoding="utf-8") == "\ufefffirst\nREPLACED\nthird\n"
 
 
+@pytest.mark.asyncio
+async def test_edit_fuzzy_matches_trailing_whitespace(tmp_path: Path) -> None:
+    """Fallback to fuzzy matching when trailing whitespace differs."""
+
+    file_path = _write_text(
+        tmp_path / "sample.txt", "line one   \nline two  \nline three\n"
+    )
+
+    await edit.fn(
+        path=str(file_path),
+        edits=[{"oldText": "line one\nline two\n", "newText": "replaced\n"}],
+        cwd=Path.cwd(),
+    )
+
+    assert file_path.read_text(encoding="utf-8") == "replaced\nline three\n"
+
+
+@pytest.mark.asyncio
+async def test_edit_fuzzy_matches_smart_quotes(tmp_path: Path) -> None:
+    """Fallback to fuzzy matching for smart quote variants."""
+
+    file_path = _write_text(
+        tmp_path / "sample.txt", "console.log(\u2018hello\u2019);\n"
+    )
+
+    await edit.fn(
+        path=str(file_path),
+        edits=[
+            {
+                "oldText": "console.log('hello');",
+                "newText": "console.log('world');",
+            }
+        ],
+        cwd=Path.cwd(),
+    )
+
+    assert file_path.read_text(encoding="utf-8") == "console.log('world');\n"
+
+
+@pytest.mark.asyncio
+async def test_edit_fuzzy_matches_unicode_dashes_and_spaces(tmp_path: Path) -> None:
+    """Fallback to fuzzy matching for Unicode dashes and spaces."""
+
+    file_path = _write_text(
+        tmp_path / "sample.txt", "hello\u00a0world\nrange: 1\u20135\n"
+    )
+
+    await edit.fn(
+        path=str(file_path),
+        edits=[
+            {
+                "oldText": "hello world\nrange: 1-5\n",
+                "newText": "hello universe\nrange: 10-50\n",
+            }
+        ],
+        cwd=Path.cwd(),
+    )
+
+    assert file_path.read_text(encoding="utf-8") == "hello universe\nrange: 10-50\n"
+
+
+@pytest.mark.asyncio
+async def test_edit_fuzzy_matches_unicode_compatibility_forms(tmp_path: Path) -> None:
+    """Fallback to fuzzy matching for NFKC-equivalent text."""
+
+    file_path = _write_text(tmp_path / "sample.txt", "ＡＢＣ１２３\ncafe\u0301\n")
+
+    await edit.fn(
+        path=str(file_path),
+        edits=[{"oldText": "ABC123\ncafé\n", "newText": "XYZ789\ncoffee\n"}],
+        cwd=Path.cwd(),
+    )
+
+    assert file_path.read_text(encoding="utf-8") == "XYZ789\ncoffee\n"
+
+
+@pytest.mark.asyncio
+async def test_edit_prefers_exact_match_over_fuzzy_match(tmp_path: Path) -> None:
+    """Use original content when all edits match exactly."""
+
+    file_path = _write_text(
+        tmp_path / "sample.txt",
+        "const x = 'exact';\nconst y = \u2018other\u2019;\n",
+    )
+
+    await edit.fn(
+        path=str(file_path),
+        edits=[
+            {
+                "oldText": "const x = 'exact';",
+                "newText": "const x = 'changed';",
+            }
+        ],
+        cwd=Path.cwd(),
+    )
+
+    assert (
+        file_path.read_text(encoding="utf-8")
+        == "const x = 'changed';\nconst y = \u2018other\u2019;\n"
+    )
+
+
+@pytest.mark.asyncio
+async def test_edit_fuzzy_matches_multiple_edits(tmp_path: Path) -> None:
+    """Use fuzzy-normalized content for all edits once fallback is needed."""
+
+    file_path = _write_text(
+        tmp_path / "sample.txt",
+        "console.log(\u2018hello\u2019);\nhello\u00a0world\n",
+    )
+
+    await edit.fn(
+        path=str(file_path),
+        edits=[
+            {
+                "oldText": "console.log('hello');\n",
+                "newText": "console.log('world');\n",
+            },
+            {"oldText": "hello world\n", "newText": "hello universe\n"},
+        ],
+        cwd=Path.cwd(),
+    )
+
+    assert file_path.read_text(encoding="utf-8") == (
+        "console.log('world');\nhello universe\n"
+    )
+
+
 def _write_text(path: Path, content: str) -> Path:
     """Write test content to a UTF-8 text file."""
 

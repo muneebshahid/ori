@@ -2,6 +2,7 @@
 
 import asyncio
 import re
+import unicodedata
 from pathlib import Path
 from typing import Literal
 
@@ -11,6 +12,10 @@ from ai.types.tools import ToolDefinition, ToolResult
 from agent.tools.paths import resolve_to_cwd
 
 UNICODE_SPACES = re.compile(r"[\u00A0\u2000-\u200A\u202F\u205F\u3000]")
+FUZZY_UNICODE_SPACES = re.compile(r"[\u00A0\u2002-\u200A\u202F\u205F\u3000]")
+SMART_SINGLE_QUOTES = re.compile(r"[\u2018\u2019\u201A\u201B]")
+SMART_DOUBLE_QUOTES = re.compile(r"[\u201C\u201D\u201E\u201F]")
+UNICODE_DASHES = re.compile(r"[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]")
 BOM = "\ufeff"
 LineEnding = Literal["\n", "\r\n"]
 
@@ -55,6 +60,10 @@ class EditExecutionResult(BaseModel):
     replacement_count: int
 
 
+class MatchNotFound(RuntimeError):
+    """Raised when a replacement oldText cannot be found."""
+
+
 async def _execute(
     path: Path,
     replacements: list[EditReplacement],
@@ -95,7 +104,11 @@ def _edit_file(
     """Read, edit, and write a UTF-8 text file."""
 
     loaded_file = _load_file(path)
-    new_content = _apply_replacements(loaded_file.content, replacements, display_path)
+    new_content = _apply_replacements_with_fallback(
+        loaded_file.content,
+        replacements,
+        display_path,
+    )
     _write_loaded_file(path, loaded_file, new_content)
     return EditExecutionResult(path=path, replacement_count=len(replacements))
 
@@ -110,6 +123,23 @@ def _load_file(path: Path) -> LoadedFile:
         content=_normalize_to_lf(content),
         line_ending=_detect_line_ending(content),
     )
+
+
+def _apply_replacements_with_fallback(
+    content: str,
+    replacements: list[EditReplacement],
+    display_path: str,
+) -> str:
+    """Apply exact replacements, then retry in fuzzy-normalized space if needed."""
+
+    try:
+        return _apply_replacements(content, replacements, display_path)
+    except MatchNotFound:
+        return _apply_replacements(
+            _normalize_for_fuzzy_match(content),
+            _fuzzy_normalized_replacements(replacements),
+            display_path,
+        )
 
 
 def _apply_replacements(
@@ -185,7 +215,9 @@ def _find_matches(
         old_text = _normalize_to_lf(replacement.oldText)
         occurrences = content.count(old_text)
         if occurrences == 0:
-            raise RuntimeError(_not_found_error(display_path, index, len(replacements)))
+            raise MatchNotFound(
+                _not_found_error(display_path, index, len(replacements))
+            )
         if occurrences > 1:
             raise RuntimeError(
                 _duplicate_error(display_path, index, len(replacements), occurrences)
@@ -262,6 +294,37 @@ def _restore_line_endings(content: str, line_ending: LineEnding) -> str:
     if line_ending == "\r\n":
         return content.replace("\n", "\r\n")
     return content
+
+
+def _fuzzy_normalized_replacements(
+    replacements: list[EditReplacement],
+) -> list[EditReplacement]:
+    """Normalize oldText values for fuzzy matching while preserving newText."""
+
+    return [
+        EditReplacement(
+            oldText=_normalize_for_fuzzy_match(_normalize_to_lf(replacement.oldText)),
+            newText=replacement.newText,
+        )
+        for replacement in replacements
+    ]
+
+
+def _normalize_for_fuzzy_match(text: str) -> str:
+    """Normalize text for fallback matching."""
+
+    normalized = unicodedata.normalize("NFKC", text)
+    normalized = _strip_trailing_line_whitespace(normalized)
+    normalized = SMART_SINGLE_QUOTES.sub("'", normalized)
+    normalized = SMART_DOUBLE_QUOTES.sub('"', normalized)
+    normalized = UNICODE_DASHES.sub("-", normalized)
+    return FUZZY_UNICODE_SPACES.sub(" ", normalized)
+
+
+def _strip_trailing_line_whitespace(text: str) -> str:
+    """Strip trailing whitespace from every line."""
+
+    return "\n".join(line.rstrip() for line in text.split("\n"))
 
 
 def _normalize_at_prefix(path: str) -> str:
