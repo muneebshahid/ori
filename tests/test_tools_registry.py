@@ -28,6 +28,7 @@ def test_build_tools_preserves_default_tool_order(tmp_path: Path) -> None:
     assert [tool.name for tool in tools] == [
         "read",
         "bash",
+        "edit",
         "grep",
         "find",
         "ls",
