@@ -85,12 +85,7 @@ async def test_ls_returns_all_directory_entries(populated_directory: Path) -> No
     result = _text(tool_result)
 
     assert result.splitlines() == ["README.md", "src/", "uv.lock"]
-    details = _ls_details(tool_result)
-    assert details.path == str(populated_directory.resolve(strict=False))
-    assert details.output.output_lines == 3
-    assert details.output.total_lines == 3
-    assert details.output.truncated is False
-    assert details.output.truncated_by is None
+    assert tool_result.details is None
 
 
 @pytest.mark.asyncio
@@ -122,7 +117,7 @@ async def test_ls_uses_cwd_when_path_is_omitted(tmp_path: Path) -> None:
     result = _text(tool_result)
 
     assert result == "sample.txt"
-    assert _ls_details(tool_result).path == str(tmp_path.resolve(strict=False))
+    assert tool_result.details is None
 
 
 @pytest.mark.asyncio
@@ -251,11 +246,7 @@ async def test_ls_reports_empty_directory(tmp_path: Path) -> None:
     result = _text(tool_result)
 
     assert result == "(empty directory)"
-    details = _ls_details(tool_result)
-    assert details.output.output_lines == 0
-    assert details.output.total_lines == 0
-    assert details.output.truncated is False
-    assert details.output.truncated_by is None
+    assert tool_result.details is None
 
 
 @pytest.mark.asyncio

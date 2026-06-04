@@ -15,10 +15,10 @@ from ai.types.tools import (
 
 from agent.tools.paths import resolve_to_cwd
 from agent.tools.truncation import (
-    OUTPUT_BYTE_LIMIT,
     OUTPUT_BYTE_LIMIT_LABEL,
     truncate_head,
 )
+from tools.types import Truncation
 
 
 class Results(BaseModel):
@@ -31,7 +31,7 @@ class FormattedResults(BaseModel):
     """Formatted ls output and metadata."""
 
     text: str
-    details: LsDetails
+    details: LsDetails | None = None
 
 
 async def fn(path: str = ".", limit: int = 500, *, cwd: Path) -> ToolResult:
@@ -61,24 +61,7 @@ def _format_results(results: Results, limit: int, path: Path) -> FormattedResult
     """Format directory listing results as compact plain text."""
 
     if not results.entries:
-        return FormattedResults(
-            text="(empty directory)",
-            details=LsDetails(
-                path=str(path),
-                output=ToolOutputDetails(
-                    truncated=False,
-                    truncated_by=None,
-                    keep="head",
-                    total_lines=0,
-                    total_bytes=0,
-                    output_lines=0,
-                    output_bytes=0,
-                    edge_line_exceeds_limit=False,
-                    max_lines=limit,
-                    max_bytes=OUTPUT_BYTE_LIMIT,
-                ),
-            ),
-        )
+        return FormattedResults(text="(empty directory)")
 
     truncation = truncate_head("\n".join(results.entries), max_lines=limit)
     result = truncation.content
@@ -95,11 +78,17 @@ def _format_results(results: Results, limit: int, path: Path) -> FormattedResult
         result += f"\n\n[{'. '.join(notices)}]"
     return FormattedResults(
         text=result,
-        details=LsDetails(
-            path=str(path),
-            output=ToolOutputDetails.from_truncation(truncation),
-        ),
+        details=_build_details(truncation),
     )
+
+
+def _build_details(truncation: Truncation) -> LsDetails | None:
+    """Build ls details when the UI has truncation to render."""
+
+    output_details = ToolOutputDetails.from_truncation(truncation)
+    if not output_details.truncated:
+        return None
+    return LsDetails(output=output_details)
 
 
 def _resolve_path(path: str, cwd: Path) -> Path:

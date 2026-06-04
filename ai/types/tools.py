@@ -54,7 +54,6 @@ class LsDetails(BaseModel):
     """Directory listing metadata for UI and persistence."""
 
     type: Literal["ls"] = "ls"
-    path: str
     output: ToolOutputDetails
 
 
