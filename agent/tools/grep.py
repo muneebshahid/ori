@@ -66,17 +66,17 @@ async def fn(
 ) -> ToolResult:
     """Search file contents for a pattern."""
 
+    effective_limit = max(1, limit)
     executable = require_executable("rg", "ripgrep (rg)")
     args = _build_args(pattern, path, glob, ignore_case, literal, context)
     output = await execute(executable, args, allowed_exit_codes=(0, 1), cwd=cwd)
-    results = _parse_output(output, limit)
-    return ToolResult.text(_format_results(results, limit))
+    results = _parse_output(output, effective_limit)
+    return ToolResult.text(_format_results(results, effective_limit))
 
 
 def _parse_output(output: str, limit: int) -> Results:
     """Parse JSON-lines output into structured search results."""
 
-    effective_limit = max(1, limit)
     lines: list[Line] = []
     match_count = 0
     truncated = False
@@ -86,7 +86,7 @@ def _parse_output(output: str, limit: int) -> Results:
         if parsed_line is None:
             continue
         if parsed_line.kind == "match":
-            if match_count >= effective_limit:
+            if match_count >= limit:
                 truncated = True
                 break
             match_count += 1
@@ -111,10 +111,9 @@ def _format_results(results: Results, limit: int) -> str:
 
     notices: list[str] = []
     if results.truncated:
-        effective_limit = max(1, limit)
         notices.append(
-            f"{effective_limit} matches limit reached. "
-            f"Use limit={effective_limit * 2} for more, or refine pattern"
+            f"{limit} matches limit reached. "
+            f"Use limit={limit * 2} for more, or refine pattern"
         )
     if byte_limit_reached:
         notices.append(f"{OUTPUT_BYTE_LIMIT_LABEL} limit reached")
