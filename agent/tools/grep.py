@@ -66,12 +66,12 @@ async def fn(
 ) -> ToolResult:
     """Search file contents for a pattern."""
 
-    effective_limit = max(1, limit)
+    limit = max(1, limit)
     executable = require_executable("rg", "ripgrep (rg)")
     args = _build_args(pattern, path, glob, ignore_case, literal, context)
     output = await execute(executable, args, allowed_exit_codes=(0, 1), cwd=cwd)
-    results = _parse_output(output, effective_limit)
-    return ToolResult.text(_format_results(results, effective_limit))
+    results = _parse_output(output, limit)
+    return ToolResult.text(_format_results(results, limit))
 
 
 def _parse_output(output: str, limit: int) -> Results:
