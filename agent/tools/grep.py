@@ -67,7 +67,7 @@ async def fn(
     """Search file contents for a pattern."""
 
     executable = require_executable("rg", "ripgrep (rg)")
-    args = _build_args(pattern, path, glob, ignore_case, literal, context, limit)
+    args = _build_args(pattern, path, glob, ignore_case, literal, context)
     output = await execute(executable, args, allowed_exit_codes=(0, 1), cwd=cwd)
     results = _parse_output(output, limit)
     return ToolResult.text(_format_results(results, limit))
@@ -136,7 +136,6 @@ def _build_args(
     ignore_case: bool,
     literal: bool,
     context: int,
-    limit: int,
 ) -> list[str]:
     """Build command arguments for a search."""
 
@@ -151,7 +150,6 @@ def _build_args(
     if context > 0:
         args.extend(["--context", str(context)])
 
-    _ = limit
     args.extend(["--", pattern, path])
     return args
 

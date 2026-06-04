@@ -29,7 +29,6 @@ def test_build_args_uses_default_search_flags() -> None:
         ignore_case=False,
         literal=False,
         context=0,
-        limit=100,
     ) == [
         "--json",
         "--line-number",
@@ -51,7 +50,6 @@ def test_build_args_adds_optional_search_flags() -> None:
         ignore_case=True,
         literal=True,
         context=2,
-        limit=25,
     ) == [
         "--json",
         "--line-number",
@@ -79,7 +77,6 @@ def test_build_args_protects_flag_like_patterns() -> None:
         ignore_case=False,
         literal=True,
         context=0,
-        limit=100,
     )[-3:] == ["--", "--pre=payload", "."]
 
 
