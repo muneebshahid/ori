@@ -33,13 +33,6 @@ class Results(BaseModel):
     truncated: bool
 
 
-class FormattedResults(BaseModel):
-    """Formatted grep output and metadata."""
-
-    text: str
-    details: GrepDetails | None = None
-
-
 class TextValue(BaseModel):
     """Text wrapper used by JSON event fields."""
 
@@ -78,9 +71,34 @@ async def fn(
     executable = require_executable("rg", "ripgrep (rg)")
     args = _build_args(pattern, path, glob, ignore_case, literal, context)
     output = await execute(executable, args, allowed_exit_codes=(0, 1), cwd=cwd)
+    return _build_results(output, limit)
+
+
+def _build_results(output: str, limit: int) -> ToolResult:
+    """Build search results from raw JSON-lines output."""
+
     results = _parse_output(output, limit)
-    formatted = _format_results(results, limit)
-    return ToolResult.text(formatted.text, details=formatted.details)
+    if not results.lines:
+        return ToolResult.text("No matches found")
+
+    formatted_lines, line_limit_results = zip(
+        *(_format_line(line) for line in results.lines),
+        strict=True,
+    )
+
+    raw_output = "\n".join(formatted_lines)
+    truncation = truncate_head(raw_output, max_lines=len(formatted_lines))
+    text = truncation.content
+    lines_truncated = any(line_limit_results)
+
+    notices = _build_notices(results, limit, truncation, lines_truncated)
+    if notices:
+        text += f"\n\n[{'. '.join(notices)}]"
+
+    return ToolResult.text(
+        text,
+        details=_build_details(results, limit, truncation, lines_truncated),
+    )
 
 
 def _parse_output(output: str, limit: int) -> Results:
@@ -104,21 +122,13 @@ def _parse_output(output: str, limit: int) -> Results:
     return Results(lines=lines, match_count=match_count, truncated=truncated)
 
 
-def _format_results(results: Results, limit: int) -> FormattedResults:
-    """Format structured search results and UI metadata."""
-
-    if not results.lines:
-        return FormattedResults(text="No matches found")
-
-    formatted_lines, line_limit_results = zip(
-        *(_format_line(line) for line in results.lines),
-        strict=True,
-    )
-
-    raw_output = "\n".join(formatted_lines)
-    truncation = truncate_head(raw_output, max_lines=len(formatted_lines))
-    output = truncation.content
-    lines_truncated = any(line_limit_results)
+def _build_notices(
+    results: Results,
+    limit: int,
+    truncation: Truncation,
+    lines_truncated: bool,
+) -> list[str]:
+    """Build model-visible grep truncation notices."""
 
     notices: list[str] = []
     if results.truncated:
@@ -133,13 +143,7 @@ def _format_results(results: Results, limit: int) -> FormattedResults:
             f"Some lines truncated to {GREP_LINE_CHARACTER_LIMIT} chars. "
             "Use read tool to see full lines"
         )
-    if notices:
-        output += f"\n\n[{'. '.join(notices)}]"
-
-    return FormattedResults(
-        text=output,
-        details=_build_details(results, limit, truncation, lines_truncated),
-    )
+    return notices
 
 
 def _build_details(

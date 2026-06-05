@@ -304,38 +304,21 @@ def test_parse_output_ignores_non_search_events() -> None:
     assert [line.text for line in result.lines] == ["needle"]
 
 
-def test_format_results_returns_plain_text() -> None:
-    """Format parsed search results using grep-style separators."""
+def test_build_results_returns_plain_text() -> None:
+    """Build grep-style text from raw search output."""
 
-    formatted = grep._format_results(
-        grep.Results(
-            lines=[
-                grep.Line(
-                    kind="context",
-                    path="example.txt",
-                    line_number=1,
-                    text="before",
-                ),
-                grep.Line(
-                    kind="match",
-                    path="example.txt",
-                    line_number=2,
-                    text="needle line",
-                ),
-                grep.Line(
-                    kind="context",
-                    path="example.txt",
-                    line_number=3,
-                    text="after",
-                ),
-            ],
-            match_count=1,
-            truncated=False,
+    result = grep._build_results(
+        "\n".join(
+            [
+                _event("context", "example.txt", 1, "before\n"),
+                _event("match", "example.txt", 2, "needle line\n"),
+                _event("context", "example.txt", 3, "after\n"),
+            ]
         ),
         limit=100,
     )
 
-    assert formatted.text == "\n".join(
+    assert _text(result) == "\n".join(
         [
             "example.txt-1- before",
             "example.txt:2: needle line",
@@ -344,103 +327,69 @@ def test_format_results_returns_plain_text() -> None:
     )
 
 
-def test_format_results_reports_truncation() -> None:
+def test_build_results_reports_truncation() -> None:
     """Append a compact truncation note when matches exceed the limit."""
 
-    formatted = grep._format_results(
-        grep.Results(
-            lines=[
-                grep.Line(
-                    kind="match",
-                    path="example.txt",
-                    line_number=1,
-                    text="first",
-                )
-            ],
-            match_count=1,
-            truncated=True,
+    result = grep._build_results(
+        "\n".join(
+            [
+                _event("match", "example.txt", 1, "first\n"),
+                _event("match", "example.txt", 2, "second\n"),
+            ]
         ),
         limit=1,
     )
 
-    assert formatted.text == (
+    assert _text(result) == (
         "example.txt:1: first\n\n"
         "[1 matches limit reached. Use limit=2 for more, or refine pattern]"
     )
 
 
-def test_format_results_reports_byte_limit() -> None:
+def test_build_results_reports_byte_limit() -> None:
     """Append a byte-limit notice when formatted output exceeds 50KB."""
 
-    formatted = grep._format_results(
-        grep.Results(
-            lines=[
-                grep.Line(
-                    kind="match",
-                    path=f"{index:03d}.txt",
-                    line_number=1,
-                    text="x" * 196,
-                )
-                for index in range(300)
-            ],
-            match_count=300,
-            truncated=False,
+    result = grep._build_results(
+        "\n".join(
+            _event("match", f"{index:03d}.txt", 1, f"{'x' * 196}\n")
+            for index in range(300)
         ),
         limit=500,
     )
     notice = "\n\n[50.0KB limit reached]"
-    body = formatted.text.removesuffix(notice)
+    text = _text(result)
+    body = text.removesuffix(notice)
 
-    assert formatted.text.endswith(notice)
+    assert text.endswith(notice)
     assert len(body.encode("utf-8")) <= truncation.OUTPUT_BYTE_LIMIT
 
 
-def test_format_results_reports_line_limit() -> None:
+def test_build_results_reports_line_limit() -> None:
     """Append a line-limit notice when a result line is shortened."""
 
-    formatted = grep._format_results(
-        grep.Results(
-            lines=[
-                grep.Line(
-                    kind="match",
-                    path="example.txt",
-                    line_number=1,
-                    text="x" * 501,
-                )
-            ],
-            match_count=1,
-            truncated=False,
-        ),
+    result = grep._build_results(
+        _event("match", "example.txt", 1, f"{'x' * 501}\n"),
         limit=100,
     )
 
-    assert formatted.text == (
+    assert _text(result) == (
         f"example.txt:1: {'x' * 500}... [truncated]\n\n"
         "[Some lines truncated to 500 chars. Use read tool to see full lines]"
     )
 
 
-def test_format_results_combines_truncation_notices() -> None:
+def test_build_results_combines_truncation_notices() -> None:
     """Report match, byte, and line truncation in one notice block."""
 
-    formatted = grep._format_results(
-        grep.Results(
-            lines=[
-                grep.Line(
-                    kind="match",
-                    path=f"{index:03d}.txt",
-                    line_number=1,
-                    text="x" * 501,
-                )
-                for index in range(120)
-            ],
-            match_count=120,
-            truncated=True,
+    result = grep._build_results(
+        "\n".join(
+            _event("match", f"{index:03d}.txt", 1, f"{'x' * 501}\n")
+            for index in range(120)
         ),
         limit=100,
     )
 
-    assert formatted.text.endswith(
+    assert _text(result).endswith(
         "\n\n[100 matches limit reached. Use limit=200 for more, or refine pattern. "
         "50.0KB limit reached. "
         "Some lines truncated to 500 chars. Use read tool to see full lines]"
