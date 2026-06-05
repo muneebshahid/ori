@@ -73,7 +73,14 @@ class FindDetails(BaseModel):
     output: ToolOutputDetails
 
 
-ToolResultDetails: TypeAlias = LsDetails | GrepDetails | FindDetails
+class ReadDetails(BaseModel):
+    """File read metadata for UI and persistence."""
+
+    type: Literal["read"] = "read"
+    output: ToolOutputDetails
+
+
+ToolResultDetails: TypeAlias = LsDetails | GrepDetails | FindDetails | ReadDetails
 
 
 class ToolTextContent(BaseModel):

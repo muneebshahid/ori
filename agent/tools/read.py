@@ -1,5 +1,6 @@
 """Text and image file read tool for the default agent."""
 
+import asyncio
 import base64
 import re
 import unicodedata
@@ -7,7 +8,14 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from ai.types.tools import ImageMimeType, ToolDefinition, ToolImageContent, ToolResult
+from ai.types.tools import (
+    ImageMimeType,
+    ReadDetails,
+    ToolDefinition,
+    ToolImageContent,
+    ToolOutputDetails,
+    ToolResult,
+)
 from agent.tools.image_processing import (
     ImageProcessingError,
     ProcessedImage,
@@ -17,6 +25,7 @@ from agent.tools.paths import resolve_to_cwd
 from agent.tools.truncation import (
     OUTPUT_BYTE_LIMIT,
     OUTPUT_BYTE_LIMIT_LABEL,
+    OUTPUT_LINE_LIMIT,
     format_size,
     truncate_head,
 )
@@ -29,18 +38,17 @@ PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
 class ReadSelection(BaseModel):
-    """Selected file content and line metadata for formatting."""
+    """Readable file content after offset selection."""
 
     content: str
     start_line: int
     total_lines: int
-    user_limited_lines: int | None
 
 
 async def fn(
     path: str,
     offset: int | None = None,
-    limit: int | None = None,
+    limit: int = OUTPUT_LINE_LIMIT,
     *,
     cwd: Path,
 ) -> ToolResult:
@@ -51,23 +59,33 @@ async def fn(
     if image_mime_type is not None:
         return _read_image(resolved_path, image_mime_type)
 
-    content = _execute(resolved_path)
-    selection = _parse_output(content, offset, limit)
-    return ToolResult.text(_format_results(selection, path))
+    content = await _execute(resolved_path)
+    limit = max(1, limit)
+    return _build_text_result(content, offset, path, limit)
 
 
-def _execute(path: Path) -> str:
+async def _execute(path: Path) -> str:
     """Read a UTF-8 text file from disk."""
 
-    return path.read_text(encoding="utf-8")
+    return await asyncio.to_thread(path.read_text, encoding="utf-8")
 
 
-def _parse_output(
+def _build_text_result(
     content: str,
     offset: int | None,
-    limit: int | None,
-) -> ReadSelection:
-    """Select the requested line window from file content."""
+    path: str,
+    limit: int = OUTPUT_LINE_LIMIT,
+) -> ToolResult:
+    """Build a text file read result from raw file content."""
+
+    selection = _select_content(content, offset)
+    truncation = truncate_head(selection.content, max_lines=limit)
+    text = _build_text(selection, truncation, path)
+    return ToolResult.text(text, details=_build_details(truncation))
+
+
+def _select_content(content: str, offset: int | None) -> ReadSelection:
+    """Select file content from the requested offset through the end."""
 
     lines = content.split("\n")
     start_index = _start_index(offset)
@@ -76,26 +94,35 @@ def _parse_output(
             f"Offset {offset} is beyond end of file ({len(lines)} lines total)"
         )
 
-    selected_lines = _select_lines(lines, start_index, limit)
+    selected_lines = lines[start_index:]
     return ReadSelection(
         content="\n".join(selected_lines),
         start_line=start_index + 1,
         total_lines=len(lines),
-        user_limited_lines=len(selected_lines) if limit is not None else None,
     )
 
 
-def _format_results(selection: ReadSelection, path: str) -> str:
-    """Format selected file content with continuation notices."""
+def _build_text(
+    selection: ReadSelection,
+    truncation: Truncation,
+    path: str,
+) -> str:
+    """Build model-visible read text from selected content."""
 
-    truncation = truncate_head(selection.content)
     if truncation.edge_line_exceeds_limit:
         return _format_first_line_too_large(selection, path)
     if truncation.truncated:
         return _format_truncated_selection(selection, truncation)
-    if _user_limit_left_remaining_lines(selection):
-        return _format_user_limited_selection(selection, truncation.content)
     return truncation.content
+
+
+def _build_details(truncation: Truncation) -> ReadDetails | None:
+    """Build read details when the UI has truncation to render."""
+
+    output_details = ToolOutputDetails.from_truncation(truncation)
+    if not output_details.truncated:
+        return None
+    return ReadDetails(output=output_details)
 
 
 def _resolve_path(path: str, cwd: Path) -> Path:
@@ -284,19 +311,6 @@ def _start_index(offset: int | None) -> int:
     return max(0, offset - 1)
 
 
-def _select_lines(
-    lines: list[str],
-    start_index: int,
-    limit: int | None,
-) -> list[str]:
-    """Return the requested line slice."""
-
-    if limit is None:
-        return lines[start_index:]
-    end_index = min(start_index + limit, len(lines))
-    return lines[start_index:end_index]
-
-
 def _format_first_line_too_large(selection: ReadSelection, path: str) -> str:
     """Return guidance when the first selected line exceeds the byte limit."""
 
@@ -310,8 +324,7 @@ def _format_first_line_too_large(selection: ReadSelection, path: str) -> str:
 
 
 def _format_truncated_selection(
-    selection: ReadSelection,
-    truncation: Truncation,
+    selection: ReadSelection, truncation: Truncation
 ) -> str:
     """Return truncated content with an offset continuation notice."""
 
@@ -319,28 +332,6 @@ def _format_truncated_selection(
     next_offset = end_line + 1
     notice = _truncation_notice(selection, truncation, end_line, next_offset)
     return f"{truncation.content}\n\n[{notice}]"
-
-
-def _format_user_limited_selection(selection: ReadSelection, content: str) -> str:
-    """Return user-limited content with an offset continuation notice."""
-
-    limited_lines = selection.user_limited_lines or 0
-    remaining = selection.total_lines - (
-        _start_index_from_selection(selection) + limited_lines
-    )
-    next_offset = selection.start_line + limited_lines
-    return f"{content}\n\n[{remaining} more lines in file. Use offset={next_offset} to continue.]"
-
-
-def _user_limit_left_remaining_lines(selection: ReadSelection) -> bool:
-    """Return whether the caller's limit stopped before end of file."""
-
-    if selection.user_limited_lines is None:
-        return False
-    return (
-        _start_index_from_selection(selection) + selection.user_limited_lines
-        < selection.total_lines
-    )
 
 
 def _truncation_notice(
@@ -360,12 +351,6 @@ def _truncation_notice(
         f"Showing lines {selection.start_line}-{end_line} of {selection.total_lines} "
         f"({OUTPUT_BYTE_LIMIT_LABEL} limit). Use offset={next_offset} to continue."
     )
-
-
-def _start_index_from_selection(selection: ReadSelection) -> int:
-    """Return the zero-based start index for a selection."""
-
-    return selection.start_line - 1
 
 
 tool = ToolDefinition(
@@ -389,6 +374,7 @@ tool = ToolDefinition(
             "limit": {
                 "type": "integer",
                 "description": "Maximum number of lines to read.",
+                "default": OUTPUT_LINE_LIMIT,
             },
         },
         "required": ["path"],

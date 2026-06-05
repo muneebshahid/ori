@@ -8,7 +8,7 @@ import pytest
 
 import agent.tools.read as read
 import agent.tools.truncation as truncation
-from ai.types.tools import ToolImageContent, ToolResult, ToolTextContent
+from ai.types.tools import ReadDetails, ToolImageContent, ToolResult, ToolTextContent
 
 
 def test_read_schema_requires_only_path() -> None:
@@ -25,6 +25,7 @@ def test_read_schema_exposes_text_read_controls() -> None:
     assert read.tool.name == "read"
     assert isinstance(properties, dict)
     assert set(properties) == {"path", "offset", "limit"}
+    assert properties["limit"]["default"] == truncation.OUTPUT_LINE_LIMIT
 
 
 @pytest.mark.asyncio
@@ -33,9 +34,11 @@ async def test_read_returns_file_contents(tmp_path: Path) -> None:
 
     file_path = _write_lines(tmp_path / "sample.txt", ["one", "two", "three"])
 
-    result = _text(await read.fn(path=str(file_path), cwd=Path.cwd()))
+    tool_result = await read.fn(path=str(file_path), cwd=Path.cwd())
+    result = _text(tool_result)
 
     assert result == "one\ntwo\nthree"
+    assert tool_result.details is None
 
 
 @pytest.mark.asyncio
@@ -70,16 +73,23 @@ async def test_read_starts_from_one_indexed_offset(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_read_reports_remaining_lines_after_limit(tmp_path: Path) -> None:
-    """Honor a caller limit before automatic truncation."""
+    """Report line truncation when a caller limit stops before end of file."""
 
     file_path = _write_numbered_lines(tmp_path / "sample.txt", count=100)
 
-    result = _text(await read.fn(path=str(file_path), limit=10, cwd=Path.cwd()))
+    tool_result = await read.fn(path=str(file_path), limit=10, cwd=Path.cwd())
+    result = _text(tool_result)
 
     assert result == (
         "\n".join(f"line {index}" for index in range(1, 11))
-        + "\n\n[90 more lines in file. Use offset=11 to continue.]"
+        + "\n\n[Showing lines 1-10 of 100. Use offset=11 to continue.]"
     )
+    details = _read_details(tool_result)
+    assert details.output.truncated is True
+    assert details.output.truncated_by == "lines"
+    assert details.output.output_lines == 10
+    assert details.output.total_lines == 100
+    assert details.output.max_lines == 10
 
 
 @pytest.mark.asyncio
@@ -88,14 +98,22 @@ async def test_read_handles_offset_and_limit_together(tmp_path: Path) -> None:
 
     file_path = _write_numbered_lines(tmp_path / "sample.txt", count=100)
 
-    result = _text(
-        await read.fn(path=str(file_path), offset=41, limit=20, cwd=Path.cwd())
+    tool_result = await read.fn(
+        path=str(file_path),
+        offset=41,
+        limit=20,
+        cwd=Path.cwd(),
     )
+    result = _text(tool_result)
 
     assert result == (
         "\n".join(f"line {index}" for index in range(41, 61))
-        + "\n\n[40 more lines in file. Use offset=61 to continue.]"
+        + "\n\n[Showing lines 41-60 of 100. Use offset=61 to continue.]"
     )
+    details = _read_details(tool_result)
+    assert details.output.truncated_by == "lines"
+    assert details.output.output_lines == 20
+    assert details.output.total_lines == 60
 
 
 @pytest.mark.asyncio
@@ -117,11 +135,16 @@ async def test_read_reports_line_truncation(tmp_path: Path) -> None:
         count=truncation.OUTPUT_LINE_LIMIT + 1,
     )
 
-    result = _text(await read.fn(path=str(file_path), cwd=Path.cwd()))
+    tool_result = await read.fn(path=str(file_path), cwd=Path.cwd())
+    result = _text(tool_result)
 
     assert result.endswith(
         "\n\n[Showing lines 1-2000 of 2001. Use offset=2001 to continue.]"
     )
+    details = _read_details(tool_result)
+    assert details.output.truncated_by == "lines"
+    assert details.output.output_lines == truncation.OUTPUT_LINE_LIMIT
+    assert details.output.total_lines == truncation.OUTPUT_LINE_LIMIT + 1
 
 
 @pytest.mark.asyncio
@@ -130,10 +153,15 @@ async def test_read_reports_byte_truncation(tmp_path: Path) -> None:
 
     file_path = _write_lines(tmp_path / "sample.txt", ["x" * 200 for _ in range(500)])
 
-    result = _text(await read.fn(path=str(file_path), cwd=Path.cwd()))
+    tool_result = await read.fn(path=str(file_path), cwd=Path.cwd())
+    result = _text(tool_result)
 
     assert "50.0KB limit" in result
     assert result.endswith("to continue.]")
+    details = _read_details(tool_result)
+    assert details.output.truncated_by == "bytes"
+    assert details.output.output_bytes <= truncation.OUTPUT_BYTE_LIMIT
+    assert details.output.total_bytes > truncation.OUTPUT_BYTE_LIMIT
 
 
 @pytest.mark.asyncio
@@ -142,12 +170,17 @@ async def test_read_reports_first_line_exceeds_byte_limit(tmp_path: Path) -> Non
 
     file_path = _write_lines(tmp_path / "sample.txt", ["x" * (50 * 1024 + 1)])
 
-    result = _text(await read.fn(path=str(file_path), cwd=Path.cwd()))
+    tool_result = await read.fn(path=str(file_path), cwd=Path.cwd())
+    result = _text(tool_result)
 
     assert result == (
         f"[Line 1 is 50.0KB, exceeds 50.0KB limit. Use bash: "
         f"sed -n '1p' {file_path} | head -c 51200]"
     )
+    details = _read_details(tool_result)
+    assert details.output.truncated_by == "bytes"
+    assert details.output.edge_line_exceeds_limit is True
+    assert details.output.output_lines == 0
 
 
 @pytest.mark.asyncio
@@ -167,6 +200,7 @@ async def test_read_returns_image_content_for_supported_image(tmp_path: Path) ->
     assert text_content.text == f'<file name="{file_path}">[image/png]</file>'
     assert image_content.mime_type == "image/png"
     assert image_content.data == base64.b64encode(image_bytes).decode("ascii")
+    assert result.details is None
 
 
 @pytest.mark.asyncio
@@ -299,3 +333,10 @@ def _text(result: ToolResult) -> str:
     content = result.content[0]
     assert isinstance(content, ToolTextContent)
     return content.text
+
+
+def _read_details(result: ToolResult) -> ReadDetails:
+    """Return read details from a tool result."""
+
+    assert isinstance(result.details, ReadDetails)
+    return result.details
