@@ -16,7 +16,7 @@ async def fn(path: str, content: str, *, cwd: Path) -> ToolResult:
 
     resolved_path = _resolve_path(path, cwd)
     result = await _execute(resolved_path, content)
-    return ToolResult.text(_format_results(result))
+    return ToolResult.text(_format_results(result, resolved_path))
 
 
 async def _execute(path: Path, content: str) -> Results:
@@ -28,14 +28,13 @@ async def _execute(path: Path, content: str) -> Results:
 class Results(BaseModel):
     """Structured file write result."""
 
-    path: Path
     bytes_written: int
 
 
-def _format_results(result: Results) -> str:
+def _format_results(result: Results, path: Path) -> str:
     """Format a successful write result."""
 
-    return f"Successfully wrote {result.bytes_written} bytes to {result.path}"
+    return f"Successfully wrote {result.bytes_written} bytes to {path}"
 
 
 def _resolve_path(path: str, cwd: Path) -> Path:
@@ -49,7 +48,7 @@ def _write_file(path: Path, content: str) -> Results:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
-    return Results(path=path, bytes_written=len(content.encode("utf-8")))
+    return Results(bytes_written=len(content.encode("utf-8")))
 
 
 tool = ToolDefinition(
