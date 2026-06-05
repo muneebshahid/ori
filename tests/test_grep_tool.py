@@ -174,7 +174,7 @@ async def test_fn_reports_match_limit_in_details(execution: AsyncMock) -> None:
     )
     details = _grep_details(tool_result)
     assert details.match_limit_reached == 1
-    assert details.truncation is None
+    assert details.output is not None
     assert details.lines_truncated is False
 
 
@@ -193,10 +193,10 @@ async def test_fn_reports_byte_truncation_in_details(execution: AsyncMock) -> No
     details = _grep_details(tool_result)
     assert details.match_limit_reached is None
     assert details.lines_truncated is False
-    assert details.truncation is not None
-    assert details.truncation.truncated is True
-    assert details.truncation.truncated_by == "bytes"
-    assert details.truncation.max_bytes == truncation.OUTPUT_BYTE_LIMIT
+    assert details.output is not None
+    assert details.output.truncated is True
+    assert details.output.truncated_by == "bytes"
+    assert details.output.max_bytes == truncation.OUTPUT_BYTE_LIMIT
 
 
 @pytest.mark.asyncio
@@ -213,7 +213,8 @@ async def test_fn_reports_line_truncation_in_details(execution: AsyncMock) -> No
     )
     details = _grep_details(tool_result)
     assert details.match_limit_reached is None
-    assert details.truncation is None
+    assert details.output is not None
+    assert details.output.truncated is False
     assert details.lines_truncated is True
 
 

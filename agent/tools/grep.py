@@ -158,7 +158,7 @@ def _build_details(
         return None
 
     return GrepDetails(
-        truncation=output_details if output_details.truncated else None,
+        output=output_details,
         match_limit_reached=limit if results.truncated else None,
         lines_truncated=lines_truncated,
     )

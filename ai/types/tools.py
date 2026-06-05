@@ -61,7 +61,7 @@ class GrepDetails(BaseModel):
     """Search metadata for UI and persistence."""
 
     type: Literal["grep"] = "grep"
-    truncation: ToolOutputDetails | None = None
+    output: ToolOutputDetails
     match_limit_reached: int | None = None
     lines_truncated: bool = False
 
