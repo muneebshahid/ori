@@ -4,10 +4,9 @@ import asyncio
 import os
 import signal
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 
-from ai.types.tools import ToolDefinition, ToolResult
+from ai.types.tools import BashDetails, ToolDefinition, ToolOutputDetails, ToolResult
 from agent.tools.output_accumulator import OutputAccumulator, OutputSnapshot
 from agent.tools.truncation import (
     OUTPUT_BYTE_LIMIT_LABEL,
@@ -16,22 +15,12 @@ from agent.tools.truncation import (
 from tools.types import Truncation
 
 
-@dataclass(frozen=True)
-class ExecutionResult:
-    """Captured shell command execution result."""
-
-    snapshot: OutputSnapshot
-    exit_code: int | None
-    timed_out: bool
-    timeout: float | None
-
-
 async def fn(command: str, timeout: float | None = None, *, cwd: Path) -> ToolResult:
     """Execute a shell command from the agent working directory."""
 
     resolved_cwd = _resolve_cwd(cwd)
     result = await _execute(command, timeout, resolved_cwd)
-    return ToolResult.text(_format_results(result))
+    return _build_results(result)
 
 
 def _resolve_cwd(cwd: Path) -> Path:
@@ -47,8 +36,8 @@ async def _execute(
     command: str,
     timeout: float | None,
     cwd: Path,
-) -> ExecutionResult:
-    """Execute a shell command and capture combined stdout and stderr."""
+) -> OutputSnapshot:
+    """Execute a shell command and return captured output for successful exits."""
 
     process = await asyncio.create_subprocess_shell(
         command,
@@ -58,12 +47,8 @@ async def _execute(
         start_new_session=_supports_process_groups(),
     )
     snapshot, timed_out = await _wait_for_process(process, timeout)
-    return ExecutionResult(
-        snapshot=snapshot,
-        exit_code=process.returncode,
-        timed_out=timed_out,
-        timeout=timeout,
-    )
+    _raise_for_execution_failure(snapshot, process.returncode, timed_out, timeout)
+    return snapshot
 
 
 async def _wait_for_process(
@@ -118,28 +103,48 @@ async def _stop_timed_out_process(
         await wait_task
 
 
-def _format_results(result: ExecutionResult) -> str:
-    """Format shell output or raise for command failure states."""
+def _build_results(snapshot: OutputSnapshot) -> ToolResult:
+    """Build shell output for successful command execution."""
 
-    if result.timed_out:
+    if not snapshot.content and not snapshot.truncation.truncated:
+        return ToolResult.text("(no output)")
+
+    if not snapshot.truncation.truncated:
+        return ToolResult.text(snapshot.content)
+
+    text = _append_status(
+        snapshot.content,
+        _truncation_notice(snapshot.truncation),
+    )
+    return ToolResult.text(text, details=_build_details(snapshot.truncation))
+
+
+def _raise_for_execution_failure(
+    snapshot: OutputSnapshot,
+    exit_code: int | None,
+    timed_out: bool,
+    timeout: float | None,
+) -> None:
+    """Raise when shell execution timed out or exited unsuccessfully."""
+
+    if timed_out:
         raise RuntimeError(
             _append_status(
-                _format_output(result.snapshot, empty_text=""),
-                _timeout_status(result.timeout),
+                _format_output(snapshot, empty_text=""),
+                _timeout_status(timeout),
             )
         )
-    if result.exit_code not in (0, None):
+    if exit_code not in (0, None):
         raise RuntimeError(
             _append_status(
-                _format_output(result.snapshot, empty_text=""),
-                f"Command exited with code {result.exit_code}",
+                _format_output(snapshot, empty_text=""),
+                f"Command exited with code {exit_code}",
             )
         )
-    return _format_output(result.snapshot, empty_text="(no output)")
 
 
 def _format_output(snapshot: OutputSnapshot, empty_text: str) -> str:
-    """Format captured shell output with tail truncation."""
+    """Format captured shell output for error messages."""
 
     if not snapshot.content and not snapshot.truncation.truncated:
         return empty_text
@@ -150,6 +155,12 @@ def _format_output(snapshot: OutputSnapshot, empty_text: str) -> str:
         snapshot.content,
         _truncation_notice(snapshot.truncation),
     )
+
+
+def _build_details(truncation: Truncation) -> BashDetails:
+    """Build bash details from output truncation metadata."""
+
+    return BashDetails(output=ToolOutputDetails.from_truncation(truncation))
 
 
 def _truncation_notice(truncation: Truncation) -> str:

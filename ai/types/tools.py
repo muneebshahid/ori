@@ -80,7 +80,16 @@ class ReadDetails(BaseModel):
     output: ToolOutputDetails
 
 
-ToolResultDetails: TypeAlias = LsDetails | GrepDetails | FindDetails | ReadDetails
+class BashDetails(BaseModel):
+    """Shell command metadata for UI and persistence."""
+
+    type: Literal["bash"] = "bash"
+    output: ToolOutputDetails
+
+
+ToolResultDetails: TypeAlias = (
+    LsDetails | GrepDetails | FindDetails | ReadDetails | BashDetails
+)
 
 
 class ToolTextContent(BaseModel):

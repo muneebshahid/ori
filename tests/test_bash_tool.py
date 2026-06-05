@@ -6,8 +6,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 import agent.tools.bash as bash
-from ai.types.tools import ToolResult, ToolTextContent
+from ai.types.tools import BashDetails, ToolResult, ToolTextContent
 from agent.tools.output_accumulator import OutputAccumulator, OutputSnapshot
+from agent.tools.truncation import OUTPUT_LINE_LIMIT
 
 
 def test_bash_schema_requires_only_command() -> None:
@@ -41,9 +42,11 @@ async def test_fn_runs_command_from_supplied_cwd(tmp_path: Path) -> None:
 
     (tmp_path / "sample.txt").write_text("content", encoding="utf-8")
 
-    result = _text(await bash.fn(command="pwd && ls", cwd=tmp_path))
+    tool_result = await bash.fn(command="pwd && ls", cwd=tmp_path)
+    result = _text(tool_result)
 
     assert result.splitlines() == [str(tmp_path.resolve()), "sample.txt"]
+    assert tool_result.details is None
 
 
 @pytest.mark.asyncio
@@ -61,9 +64,11 @@ async def test_fn_combines_stderr_with_stdout(tmp_path: Path) -> None:
 async def test_fn_returns_no_output_marker(tmp_path: Path) -> None:
     """Return an explicit marker when a successful command emits nothing."""
 
-    result = _text(await bash.fn(command="true", cwd=tmp_path))
+    tool_result = await bash.fn(command="true", cwd=tmp_path)
+    result = _text(tool_result)
 
     assert result == "(no output)"
+    assert tool_result.details is None
 
 
 @pytest.mark.asyncio
@@ -74,17 +79,19 @@ async def test_fn_truncates_to_tail_output(
     """Keep the end of large bash output instead of returning all content."""
 
     output = "\n".join(f"line {index}" for index in range(2002))
-    execution.return_value = bash.ExecutionResult(
-        snapshot=_snapshot(output),
-        exit_code=0,
-        timed_out=False,
-        timeout=None,
-    )
+    execution.return_value = _snapshot(output)
 
-    result = _text(await bash.fn(command="generate-output", cwd=tmp_path))
+    tool_result = await bash.fn(command="generate-output", cwd=tmp_path)
+    result = _text(tool_result)
 
     assert result.startswith("line 2\n")
     assert result.endswith("\n\n[Showing lines 3-2002 of 2002]")
+    details = _bash_details(tool_result)
+    assert details.output.truncated is True
+    assert details.output.truncated_by == "lines"
+    assert details.output.keep == "tail"
+    assert details.output.output_lines == OUTPUT_LINE_LIMIT
+    assert details.output.total_lines == OUTPUT_LINE_LIMIT + 2
     execution.assert_awaited_once_with("generate-output", None, tmp_path.resolve())
 
 
@@ -127,6 +134,13 @@ def _text(result: ToolResult) -> str:
     content = result.content[0]
     assert isinstance(content, ToolTextContent)
     return content.text
+
+
+def _bash_details(result: ToolResult) -> BashDetails:
+    """Return bash details from a tool result."""
+
+    assert isinstance(result.details, BashDetails)
+    return result.details
 
 
 def _snapshot(output: str) -> OutputSnapshot:
