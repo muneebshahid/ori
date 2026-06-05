@@ -12,29 +12,30 @@ from agent.tools.paths import resolve_to_cwd
 
 
 class Results(BaseModel):
-    """Structured file write result."""
+    """Formatted file write result."""
 
-    bytes_written: int
+    text: str
 
 
 async def fn(path: str, content: str, *, cwd: Path) -> ToolResult:
     """Write content to a file."""
 
     resolved_path = _resolve_path(path, cwd)
-    result = await _execute(resolved_path, content)
-    return ToolResult.text(_format_results(result, resolved_path))
+    bytes_written = await _execute(resolved_path, content)
+    result = _build_results(bytes_written, resolved_path)
+    return ToolResult.text(result.text)
 
 
-async def _execute(path: Path, content: str) -> Results:
+async def _execute(path: Path, content: str) -> int:
     """Write file content asynchronously."""
 
     return await asyncio.to_thread(_write_file, path, content)
 
 
-def _format_results(result: Results, path: Path) -> str:
-    """Format a successful write result."""
+def _build_results(bytes_written: int, path: Path) -> Results:
+    """Build a successful write result."""
 
-    return f"Successfully wrote {result.bytes_written} bytes to {path}"
+    return Results(text=f"Successfully wrote {bytes_written} bytes to {path}")
 
 
 def _resolve_path(path: str, cwd: Path) -> Path:
@@ -43,12 +44,12 @@ def _resolve_path(path: str, cwd: Path) -> Path:
     return resolve_to_cwd(path, cwd).resolve(strict=False)
 
 
-def _write_file(path: Path, content: str) -> Results:
+def _write_file(path: Path, content: str) -> int:
     """Create parent directories and write UTF-8 content to a file."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
-    return Results(bytes_written=len(content.encode("utf-8")))
+    return len(content.encode("utf-8"))
 
 
 tool = ToolDefinition(
