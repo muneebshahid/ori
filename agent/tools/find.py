@@ -2,17 +2,10 @@
 
 from pathlib import Path
 
-from pydantic import BaseModel
-
-from ai.types.tools import ToolDefinition, ToolResult
+from ai.types.tools import FindDetails, ToolDefinition, ToolOutputDetails, ToolResult
 from agent.tools.executables import execute, require_executable
 from agent.tools.truncation import OUTPUT_BYTE_LIMIT_LABEL, truncate_head
-
-
-class Results(BaseModel):
-    """Structured file path search results returned by the find tool."""
-
-    paths: list[str]
+from tools.types import Truncation
 
 
 async def fn(
@@ -28,8 +21,7 @@ async def fn(
     executable = require_executable("fd", "fd")
     args = _build_args(pattern, path, limit)
     output = await execute(executable, args, cwd=cwd)
-    results = _parse_output(output)
-    return ToolResult.text(_format_results(results, limit))
+    return _build_results(output, limit)
 
 
 def _build_args(
@@ -56,21 +48,15 @@ def _build_args(
     return args
 
 
-def _parse_output(output: str) -> Results:
-    """Parse fd stdout into structured file path search results."""
+def _build_results(output: str, limit: int) -> ToolResult:
+    """Build file path search results from raw fd stdout."""
 
     paths = [_normalize_path(line) for line in output.splitlines() if line]
-    return Results(paths=paths)
+    if not paths:
+        return ToolResult.text("No files found matching pattern")
 
-
-def _format_results(results: Results, limit: int) -> str:
-    """Format file path search results as compact plain text."""
-
-    if not results.paths:
-        return "No files found matching pattern"
-
-    truncation = truncate_head("\n".join(results.paths), max_lines=limit)
-    output = truncation.content
+    truncation = truncate_head("\n".join(paths), max_lines=limit)
+    text = truncation.content
 
     notices: list[str] = []
     if truncation.truncated_by == "lines":
@@ -81,8 +67,17 @@ def _format_results(results: Results, limit: int) -> str:
     if truncation.truncated_by == "bytes":
         notices.append(f"{OUTPUT_BYTE_LIMIT_LABEL} limit reached")
     if notices:
-        output += f"\n\n[{'. '.join(notices)}]"
-    return output
+        text += f"\n\n[{'. '.join(notices)}]"
+    return ToolResult.text(text, details=_build_details(truncation))
+
+
+def _build_details(truncation: Truncation) -> FindDetails | None:
+    """Build find details when the UI has truncation to render."""
+
+    output_details = ToolOutputDetails.from_truncation(truncation)
+    if not output_details.truncated:
+        return None
+    return FindDetails(output=output_details)
 
 
 def _build_effective_pattern(pattern: str) -> str:

@@ -8,7 +8,7 @@ import pytest
 import agent.tools.executables as executables
 import agent.tools.find as find
 import agent.tools.truncation as truncation
-from ai.types.tools import ToolResult, ToolTextContent
+from ai.types.tools import FindDetails, ToolResult, ToolTextContent
 
 
 def test_find_schema_requires_only_pattern() -> None:
@@ -59,9 +59,11 @@ async def test_fn_uses_default_file_search_flags(
 
     execution.return_value = "./agent/tools/find.py\n"
 
-    result = _text(await find.fn(pattern="*.py", cwd=Path.cwd()))
+    tool_result = await find.fn(pattern="*.py", cwd=Path.cwd())
+    result = _text(tool_result)
 
     assert result == "agent/tools/find.py"
+    assert tool_result.details is None
     execution.assert_awaited_once_with(
         "/usr/bin/fd",
         [
@@ -183,9 +185,11 @@ async def test_fn_returns_no_matches_when_fd_output_is_empty(
 
     execution.return_value = ""
 
-    result = _text(await find.fn(pattern="*.missing", cwd=Path.cwd()))
+    tool_result = await find.fn(pattern="*.missing", cwd=Path.cwd())
+    result = _text(tool_result)
 
     assert result == "No files found matching pattern"
+    assert tool_result.details is None
 
 
 @pytest.mark.asyncio
@@ -208,12 +212,19 @@ async def test_fn_normalizes_paths_and_reports_result_limit(
         ".\\agent\\tools\\find.py\n./tests/test_find_tool.py\n./extra.py\n"
     )
 
-    result = _text(await find.fn(pattern="*.py", limit=2, cwd=Path.cwd()))
+    tool_result = await find.fn(pattern="*.py", limit=2, cwd=Path.cwd())
+    result = _text(tool_result)
 
     assert result == (
         "agent/tools/find.py\ntests/test_find_tool.py\n\n"
         "[2 results limit reached. Use limit=4 for more, or refine pattern]"
     )
+    details = _find_details(tool_result)
+    assert details.output.truncated is True
+    assert details.output.truncated_by == "lines"
+    assert details.output.output_lines == 2
+    assert details.output.total_lines == 3
+    assert details.output.max_lines == 2
 
 
 @pytest.mark.asyncio
@@ -225,11 +236,16 @@ async def test_fn_reports_result_limit_when_result_boundary_is_first(
 
     execution.return_value = "./a.py\n./b.py\n"
 
-    result = _text(await find.fn(pattern="*.py", limit=1, cwd=Path.cwd()))
+    tool_result = await find.fn(pattern="*.py", limit=1, cwd=Path.cwd())
+    result = _text(tool_result)
 
     assert result == (
         "a.py\n\n[1 results limit reached. Use limit=2 for more, or refine pattern]"
     )
+    details = _find_details(tool_result)
+    assert details.output.truncated_by == "lines"
+    assert details.output.output_lines == 1
+    assert details.output.total_lines == 2
 
 
 @pytest.mark.asyncio
@@ -240,12 +256,17 @@ async def test_fn_reports_byte_limit(execution: AsyncMock) -> None:
     stdout = "\n".join(f"./{index:03d}-{'x' * 196}.py" for index in range(300))
     execution.return_value = f"{stdout}\n"
 
-    result = _text(await find.fn(pattern="*.py", limit=1000, cwd=Path.cwd()))
+    tool_result = await find.fn(pattern="*.py", limit=1000, cwd=Path.cwd())
+    result = _text(tool_result)
     notice = "\n\n[50.0KB limit reached]"
     body = result.removesuffix(notice)
 
     assert result.endswith(notice)
     assert len(body.encode("utf-8")) <= truncation.OUTPUT_BYTE_LIMIT
+    details = _find_details(tool_result)
+    assert details.output.truncated_by == "bytes"
+    assert details.output.output_bytes <= truncation.OUTPUT_BYTE_LIMIT
+    assert details.output.total_bytes > truncation.OUTPUT_BYTE_LIMIT
 
 
 @pytest.mark.asyncio
@@ -308,3 +329,10 @@ def _text(result: ToolResult) -> str:
     content = result.content[0]
     assert isinstance(content, ToolTextContent)
     return content.text
+
+
+def _find_details(result: ToolResult) -> FindDetails:
+    """Return find details from a tool result."""
+
+    assert isinstance(result.details, FindDetails)
+    return result.details

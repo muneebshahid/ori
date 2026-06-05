@@ -66,7 +66,14 @@ class GrepDetails(BaseModel):
     lines_truncated: bool = False
 
 
-ToolResultDetails: TypeAlias = LsDetails | GrepDetails
+class FindDetails(BaseModel):
+    """File path search metadata for UI and persistence."""
+
+    type: Literal["find"] = "find"
+    output: ToolOutputDetails
+
+
+ToolResultDetails: TypeAlias = LsDetails | GrepDetails | FindDetails
 
 
 class ToolTextContent(BaseModel):
