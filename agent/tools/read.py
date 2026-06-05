@@ -25,6 +25,7 @@ from agent.tools.truncation import (
     OUTPUT_BYTE_LIMIT,
     OUTPUT_BYTE_LIMIT_LABEL,
     OUTPUT_LINE_LIMIT,
+    append_notice_block,
     format_size,
     truncate_head,
 )
@@ -331,7 +332,7 @@ def _format_truncated_selection(
     end_line = selection.start_line + truncation.output_lines - 1
     next_offset = end_line + 1
     notice = _truncation_notice(selection, truncation, end_line, next_offset)
-    return f"{truncation.content}\n\n[{notice}]"
+    return append_notice_block(truncation.content, [notice])
 
 
 def _truncation_notice(

@@ -1,6 +1,6 @@
 """Shared truncation helpers for built-in tool output."""
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 
 from tools.types import Truncation, TruncationKeep, TruncationReason
 
@@ -12,6 +12,14 @@ OUTPUT_BYTE_LIMIT: int = 50 * 1024
 OUTPUT_BYTE_LIMIT_LABEL: str = "50.0KB"
 # Maximum characters to keep from one grep result text line.
 GREP_LINE_CHARACTER_LIMIT: int = 500
+
+
+def append_notice_block(text: str, notices: Sequence[str]) -> str:
+    """Append model-visible notices in the standard bracketed block format."""
+
+    if not notices:
+        return text
+    return f"{text}\n\n[{'. '.join(notices)}]"
 
 
 def truncate_head(

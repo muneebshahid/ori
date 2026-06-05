@@ -11,6 +11,7 @@ from agent.tools.executables import execute, require_executable
 from agent.tools.truncation import (
     GREP_LINE_CHARACTER_LIMIT,
     OUTPUT_BYTE_LIMIT_LABEL,
+    append_notice_block,
     truncate_head,
     truncate_line,
 )
@@ -94,8 +95,7 @@ def _build_results(output: str, limit: int) -> ToolResult:
     lines_truncated = any(line_limit_results)
 
     notices = _build_notices(results, limit, truncation, lines_truncated)
-    if notices:
-        text += f"\n\n[{'. '.join(notices)}]"
+    text = append_notice_block(text, notices)
 
     return ToolResult.text(
         text,

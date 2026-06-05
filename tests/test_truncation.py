@@ -3,6 +3,20 @@
 import agent.tools.truncation as truncation
 
 
+def test_append_notice_block_returns_text_without_notices() -> None:
+    """Return unchanged text when there are no notices to append."""
+
+    assert truncation.append_notice_block("content", []) == "content"
+
+
+def test_append_notice_block_formats_joined_notices() -> None:
+    """Append notices in the shared bracketed block format."""
+
+    assert truncation.append_notice_block("content", ["first", "second"]) == (
+        "content\n\n[first. second]"
+    )
+
+
 def test_truncate_to_byte_limit_keeps_complete_lines() -> None:
     """Truncate over-limit output at line boundaries instead of mid-line."""
 

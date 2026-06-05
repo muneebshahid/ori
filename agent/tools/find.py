@@ -4,7 +4,11 @@ from pathlib import Path
 
 from ai.types.tools import FindDetails, ToolDefinition, ToolOutputDetails, ToolResult
 from agent.tools.executables import execute, require_executable
-from agent.tools.truncation import OUTPUT_BYTE_LIMIT_LABEL, truncate_head
+from agent.tools.truncation import (
+    OUTPUT_BYTE_LIMIT_LABEL,
+    append_notice_block,
+    truncate_head,
+)
 from tools.types import Truncation
 
 
@@ -66,8 +70,7 @@ def _build_results(output: str, limit: int) -> ToolResult:
         )
     if truncation.truncated_by == "bytes":
         notices.append(f"{OUTPUT_BYTE_LIMIT_LABEL} limit reached")
-    if notices:
-        text += f"\n\n[{'. '.join(notices)}]"
+    text = append_notice_block(text, notices)
     return ToolResult.text(text, details=_build_details(truncation))
 
 

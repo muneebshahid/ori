@@ -13,6 +13,7 @@ from ai.types.tools import (
 from agent.tools.paths import resolve_to_cwd
 from agent.tools.truncation import (
     OUTPUT_BYTE_LIMIT_LABEL,
+    append_notice_block,
     truncate_head,
 )
 from tools.types import Truncation
@@ -50,8 +51,7 @@ def _build_results(entries: list[str], limit: int) -> ToolResult:
             f"{OUTPUT_BYTE_LIMIT_LABEL} limit reached. "
             f"Directory has {len(entries)} entries"
         )
-    if notices:
-        result += f"\n\n[{'. '.join(notices)}]"
+    result = append_notice_block(result, notices)
     return ToolResult.text(result, details=_build_details(truncation))
 
 
