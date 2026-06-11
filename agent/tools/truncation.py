@@ -1,6 +1,7 @@
 """Shared truncation helpers for built-in tool output."""
 
 from collections.abc import Iterator, Sequence
+from dataclasses import dataclass
 
 from tools.types import Truncation, TruncationKeep, TruncationReason
 
@@ -12,6 +13,15 @@ OUTPUT_BYTE_LIMIT: int = 50 * 1024
 OUTPUT_BYTE_LIMIT_LABEL: str = "50.0KB"
 # Maximum characters to keep from one grep result text line.
 GREP_LINE_CHARACTER_LIMIT: int = 500
+
+
+@dataclass(frozen=True)
+class TextMeasurements:
+    """Line and byte measurements for text being truncated."""
+
+    lines: tuple[str, ...]
+    total_lines: int
+    total_bytes: int
 
 
 def append_notice_block(text: str, notices: Sequence[str]) -> str:
@@ -51,59 +61,26 @@ def truncate_text(
 ) -> Truncation:
     """Return one edge of text constrained by line and byte limits."""
 
-    total_bytes = len(text.encode("utf-8"))
-    lines = text.split("\n")
-    total_lines = len(lines)
-    if total_lines <= max_lines and total_bytes <= max_bytes:
-        return Truncation(
-            content=text,
-            truncated=False,
-            truncated_by=None,
-            keep=keep,
-            total_lines=total_lines,
-            total_bytes=total_bytes,
-            output_lines=total_lines,
-            output_bytes=total_bytes,
-            edge_line_exceeds_limit=False,
-            max_lines=max_lines,
-            max_bytes=max_bytes,
-        )
+    measurements = _measure_text(text)
+    if _fits_limits(measurements, max_lines, max_bytes):
+        return _untruncated_result(text, measurements, keep, max_lines, max_bytes)
 
-    edge_line = lines[0] if keep == "head" else lines[-1]
-    if len(edge_line.encode("utf-8")) > max_bytes:
-        return Truncation(
-            content="",
-            truncated=True,
-            truncated_by="bytes",
-            keep=keep,
-            total_lines=total_lines,
-            total_bytes=total_bytes,
-            output_lines=0,
-            output_bytes=0,
-            edge_line_exceeds_limit=True,
-            max_lines=max_lines,
-            max_bytes=max_bytes,
-        )
+    if _edge_line_exceeds_limit(measurements.lines, keep, max_bytes):
+        return _edge_line_exceeded_result(measurements, keep, max_lines, max_bytes)
 
     output_lines, truncated_by = _select_output_lines(
-        lines,
+        measurements.lines,
         keep,
         max_lines,
         max_bytes,
     )
-    content = "\n".join(output_lines)
-    return Truncation(
-        content=content,
-        truncated=True,
-        truncated_by=truncated_by,
-        keep=keep,
-        total_lines=total_lines,
-        total_bytes=total_bytes,
-        output_lines=len(output_lines),
-        output_bytes=len(content.encode("utf-8")),
-        edge_line_exceeds_limit=False,
-        max_lines=max_lines,
-        max_bytes=max_bytes,
+    return _truncated_result(
+        output_lines,
+        truncated_by,
+        measurements,
+        keep,
+        max_lines,
+        max_bytes,
     )
 
 
@@ -151,8 +128,122 @@ def format_size(byte_count: int) -> str:
     return f"{byte_count / (1024 * 1024):.1f}MB"
 
 
+def _measure_text(text: str) -> TextMeasurements:
+    """Measure text once for truncation decisions and metadata."""
+
+    lines = tuple(text.split("\n"))
+    return TextMeasurements(
+        lines=lines,
+        total_lines=len(lines),
+        total_bytes=len(text.encode("utf-8")),
+    )
+
+
+def _fits_limits(
+    measurements: TextMeasurements,
+    max_lines: int,
+    max_bytes: int,
+) -> bool:
+    """Return whether text fits within both output limits."""
+
+    return (
+        measurements.total_lines <= max_lines and measurements.total_bytes <= max_bytes
+    )
+
+
+def _untruncated_result(
+    text: str,
+    measurements: TextMeasurements,
+    keep: TruncationKeep,
+    max_lines: int,
+    max_bytes: int,
+) -> Truncation:
+    """Build truncation metadata for text that already fits."""
+
+    return Truncation(
+        content=text,
+        truncated=False,
+        truncated_by=None,
+        keep=keep,
+        total_lines=measurements.total_lines,
+        total_bytes=measurements.total_bytes,
+        output_lines=measurements.total_lines,
+        output_bytes=measurements.total_bytes,
+        edge_line_exceeds_limit=False,
+        max_lines=max_lines,
+        max_bytes=max_bytes,
+    )
+
+
+def _edge_line_exceeds_limit(
+    lines: Sequence[str],
+    keep: TruncationKeep,
+    max_bytes: int,
+) -> bool:
+    """Return whether the retained edge line alone exceeds the byte limit."""
+
+    return len(_edge_line(lines, keep).encode("utf-8")) > max_bytes
+
+
+def _edge_line(lines: Sequence[str], keep: TruncationKeep) -> str:
+    """Return the line at the retained edge."""
+
+    if keep == "head":
+        return lines[0]
+    return lines[-1]
+
+
+def _edge_line_exceeded_result(
+    measurements: TextMeasurements,
+    keep: TruncationKeep,
+    max_lines: int,
+    max_bytes: int,
+) -> Truncation:
+    """Build metadata when no complete retained-edge line can fit."""
+
+    return Truncation(
+        content="",
+        truncated=True,
+        truncated_by="bytes",
+        keep=keep,
+        total_lines=measurements.total_lines,
+        total_bytes=measurements.total_bytes,
+        output_lines=0,
+        output_bytes=0,
+        edge_line_exceeds_limit=True,
+        max_lines=max_lines,
+        max_bytes=max_bytes,
+    )
+
+
+def _truncated_result(
+    output_lines: list[str],
+    truncated_by: TruncationReason,
+    measurements: TextMeasurements,
+    keep: TruncationKeep,
+    max_lines: int,
+    max_bytes: int,
+) -> Truncation:
+    """Build metadata for retained output lines."""
+
+    content = "\n".join(output_lines)
+    return Truncation(
+        content=content,
+        truncated=True,
+        truncated_by=truncated_by,
+        keep=keep,
+        total_lines=measurements.total_lines,
+        total_bytes=measurements.total_bytes,
+        output_lines=len(output_lines),
+        output_bytes=len(content.encode("utf-8")),
+        edge_line_exceeds_limit=False,
+        max_lines=max_lines,
+        max_bytes=max_bytes,
+    )
+
+
 def _select_output_lines(
-    lines: list[str],
+    lines: Sequence[str],
     keep: TruncationKeep,
     max_lines: int,
     max_bytes: int,
@@ -180,7 +271,7 @@ def _select_output_lines(
     return output_lines, truncated_by
 
 
-def _iter_lines(lines: list[str], keep: TruncationKeep) -> Iterator[str]:
+def _iter_lines(lines: Sequence[str], keep: TruncationKeep) -> Iterator[str]:
     """Iterate lines from the retained edge."""
 
     if keep == "head":
