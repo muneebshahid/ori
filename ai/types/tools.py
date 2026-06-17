@@ -87,8 +87,15 @@ class BashDetails(BaseModel):
     output: ToolOutputDetails
 
 
+class EditDetails(BaseModel):
+    """File edit metadata for UI and persistence."""
+
+    type: Literal["edit"] = "edit"
+    diff: str
+
+
 ToolResultDetails: TypeAlias = (
-    LsDetails | GrepDetails | FindDetails | ReadDetails | BashDetails
+    LsDetails | GrepDetails | FindDetails | ReadDetails | BashDetails | EditDetails
 )
 
 

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 import agent.tools.edit as edit
-from ai.types.tools import ToolResult, ToolTextContent
+from ai.types.tools import EditDetails, ToolResult, ToolTextContent
 
 
 def test_edit_schema_requires_path_and_edits() -> None:
@@ -110,6 +110,31 @@ async def test_edit_replaces_multiple_disjoint_blocks(tmp_path: Path) -> None:
     )
 
     assert file_path.read_text(encoding="utf-8") == "ALPHA\nbeta\nGAMMA\n"
+
+
+@pytest.mark.asyncio
+async def test_edit_returns_unified_diff_details(tmp_path: Path) -> None:
+    """Return a standard unified diff in edit result details."""
+
+    file_path = _write_text(tmp_path / "sample.txt", "alpha\nbeta\ngamma\n")
+
+    tool_result = await edit.fn(
+        path=str(file_path),
+        edits=[{"oldText": "beta\n", "newText": "BETA\n"}],
+        cwd=Path.cwd(),
+    )
+
+    details = _edit_details(tool_result)
+    assert details.type == "edit"
+    assert details.diff == (
+        f"--- a/{file_path}\n"
+        f"+++ b/{file_path}\n"
+        "@@ -1,3 +1,3 @@\n"
+        " alpha\n"
+        "-beta\n"
+        "+BETA\n"
+        " gamma\n"
+    )
 
 
 @pytest.mark.asyncio
@@ -401,3 +426,10 @@ def _text(result: ToolResult) -> str:
     content = result.content[0]
     assert isinstance(content, ToolTextContent)
     return content.text
+
+
+def _edit_details(result: ToolResult) -> EditDetails:
+    """Return edit details from a tool result."""
+
+    assert isinstance(result.details, EditDetails)
+    return result.details

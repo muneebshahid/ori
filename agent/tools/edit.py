@@ -1,6 +1,7 @@
 """File edit tool for the default agent."""
 
 import asyncio
+import difflib
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -9,7 +10,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from ai.types.tools import ToolDefinition, ToolResult
+from ai.types.tools import EditDetails, ToolDefinition, ToolResult
 from agent.tools.paths import resolve_to_cwd
 
 UNICODE_SPACES = re.compile(r"[\u00A0\u2000-\u200A\u202F\u205F\u3000]")
@@ -62,6 +63,15 @@ class EditExecutionResult:
 
     path: Path
     replacement_count: int
+    diff: str
+
+
+@dataclass(frozen=True)
+class ReplacementApplication:
+    """Content before and after applying validated replacements."""
+
+    base_content: str
+    new_content: str
 
 
 class MatchNotFound(RuntimeError):
@@ -91,7 +101,7 @@ def _build_result(result: EditExecutionResult, path: str) -> ToolResult:
     """Build a successful edit result."""
 
     text = f"Successfully replaced {result.replacement_count} block(s) in {path}."
-    return ToolResult.text(text)
+    return ToolResult.text(text, details=EditDetails(diff=result.diff))
 
 
 def _resolve_path(path: str, cwd: Path) -> Path:
@@ -109,13 +119,22 @@ def _edit_file(
     """Read, edit, and write a UTF-8 text file."""
 
     loaded_file = _load_file(path)
-    new_content = _apply_replacements_with_fallback(
+    application = _apply_replacements_with_fallback(
         loaded_file.content,
         replacements,
         display_path,
     )
-    _write_loaded_file(path, loaded_file, new_content)
-    return EditExecutionResult(path=path, replacement_count=len(replacements))
+    _write_loaded_file(path, loaded_file, application.new_content)
+    diff = _generate_unified_diff(
+        application.base_content,
+        application.new_content,
+        display_path,
+    )
+    return EditExecutionResult(
+        path=path,
+        replacement_count=len(replacements),
+        diff=diff,
+    )
 
 
 def _load_file(path: Path) -> LoadedFile:
@@ -134,7 +153,7 @@ def _apply_replacements_with_fallback(
     content: str,
     replacements: list[EditReplacement],
     display_path: str,
-) -> str:
+) -> ReplacementApplication:
     """Apply exact replacements, then retry in fuzzy-normalized space if needed."""
 
     try:
@@ -151,14 +170,14 @@ def _apply_replacements(
     content: str,
     replacements: list[EditReplacement],
     display_path: str,
-) -> str:
+) -> ReplacementApplication:
     """Validate and apply replacements against original content."""
 
     matched_edits = _match_replacements(content, replacements, display_path)
     new_content = _replace_matched_edits(content, matched_edits)
     if content == new_content:
         raise RuntimeError(_no_change_error(display_path, len(replacements)))
-    return new_content
+    return ReplacementApplication(base_content=content, new_content=new_content)
 
 
 def _write_loaded_file(path: Path, loaded_file: LoadedFile, content: str) -> None:
@@ -166,6 +185,18 @@ def _write_loaded_file(path: Path, loaded_file: LoadedFile, content: str) -> Non
 
     restored_content = _restore_line_endings(content, loaded_file.line_ending)
     _write_text(path, f"{loaded_file.bom}{restored_content}")
+
+
+def _generate_unified_diff(old_content: str, new_content: str, path: str) -> str:
+    """Generate a standard unified diff for edited LF-normalized content."""
+
+    diff_lines = difflib.unified_diff(
+        old_content.splitlines(keepends=True),
+        new_content.splitlines(keepends=True),
+        fromfile=f"a/{path}",
+        tofile=f"b/{path}",
+    )
+    return "".join(diff_lines)
 
 
 def _read_text(path: Path) -> str:
