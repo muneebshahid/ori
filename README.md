@@ -2,15 +2,16 @@
 
 > ⚠️ **Work in Progress** — This project is under active development and APIs may change.
 
-A minimal, highly extensible harness for building AI agents in Python. Inspired by [pi.dev](https://pi.dev) (TypeScript).
+A minimal, headless harness for building tool-using AI agents in Python.
 
 ## Overview
 
-**piy** is a plugin-first harness for building intelligent AI agents in Python. Everything is pluggable—providers, tools, event handlers, and serialization can be swapped or extended without touching core logic. Start minimal and compose your agent exactly as needed.
+**piy** is a headless agent kernel for building intelligent AI agents in Python. Providers, tools, events, and serialization are explicit runtime contracts. Start minimal and compose the agent loop you need without adopting a terminal UI or application framework.
 
 ## Features
 
-- **Plugin Architecture**: Swap providers, tools, event handlers, and serializers without modifying core agent logic
+- **Headless Runtime**: Run agents from Python code or a small local command without a UI dependency
+- **Explicit Contracts**: Swap providers, tools, event handlers, and serializers without modifying core agent logic
 - **Minimal Core**: Only what you need—everything else is optional
 - **Async First**: Built on Python async/await for non-blocking I/O
 - **Type Safe**: Full Pydantic integration with mypy support
@@ -26,21 +27,21 @@ piy/
 ├── ai/
 │   ├── openai/      # OpenAI provider implementation
 │   └── types/       # Shared type definitions for contracts, tools, and streams
-├── ui/              # User interface layer
 └── tests/           # Test suite
 ```
 
 ## Quick Start
 
-```python
-# Create and run an agent
-from agent.agent import Agent
+Run a local prompt:
 
-agent = Agent()
-# Stream events from the agent
-async for event in agent.run(...):
-    # Handle events as they arrive
-    pass
+```bash
+uv run python main.py "Inspect the current repository"
+```
+
+Or pipe a prompt through stdin:
+
+```bash
+printf "Inspect the current repository" | uv run python main.py
 ```
 
 ## Development
