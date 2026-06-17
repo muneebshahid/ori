@@ -35,13 +35,13 @@ piy/
 Run a local prompt:
 
 ```bash
-uv run python main.py "Inspect the current repository"
+uv run python -m examples.local_runner "Inspect the current repository"
 ```
 
 Or pipe a prompt through stdin:
 
 ```bash
-printf "Inspect the current repository" | uv run python main.py
+printf "Inspect the current repository" | uv run python -m examples.local_runner
 ```
 
 ## Development

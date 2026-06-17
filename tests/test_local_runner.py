@@ -1,4 +1,4 @@
-"""Tests for the local headless command runner."""
+"""Tests for the example local headless runner."""
 
 import asyncio
 import io
@@ -15,7 +15,7 @@ from ai.types.stream import (
     StreamStartEvent,
 )
 from ai.types.tools import ToolDefinition
-from main import run_cli, run_prompt
+from examples.local_runner import run_cli, run_prompt
 
 
 def test_run_prompt_streams_agent_events_as_json_lines() -> None:

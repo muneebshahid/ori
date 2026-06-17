@@ -1,4 +1,4 @@
-"""Command-line entrypoint for running a headless local piy agent."""
+"""Example local runner for one headless piy prompt."""
 
 import asyncio
 import sys
@@ -14,7 +14,7 @@ from settings import settings
 
 
 def main() -> None:
-    """Run the local headless agent command."""
+    """Run the example local runner."""
 
     raise SystemExit(asyncio.run(run_cli(sys.argv[1:])))
 
