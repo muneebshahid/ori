@@ -3,7 +3,6 @@
 from agent.types.agent_events import (
     AgentEndEvent,
     AgentEvent,
-    AgentEventType,
     AgentRunEvent,
     AgentStartEvent,
     MessageEndEvent,
@@ -19,7 +18,6 @@ from agent.types.agent_events import (
 __all__ = [
     "AgentEndEvent",
     "AgentEvent",
-    "AgentEventType",
     "AgentRunEvent",
     "AgentStartEvent",
     "MessageEndEvent",

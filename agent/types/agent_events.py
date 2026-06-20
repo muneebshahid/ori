@@ -109,5 +109,3 @@ AgentRunEvent: TypeAlias = (
     | ToolExecutionStartEvent
     | ToolExecutionEndEvent
 )
-
-AgentEventType: TypeAlias = AgentRunEvent
