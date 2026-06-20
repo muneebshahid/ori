@@ -225,48 +225,39 @@ def test_assemble_stream_maps_refusal_deltas() -> None:
     assert done_text_block.text == "No thanks"
 
 
-def test_assemble_stream_reuses_text_block_for_message_text_parts() -> None:
-    """Keeps one text block when a message has multiple supported text parts."""
+def test_assemble_stream_waits_for_supported_text_part_before_deltas() -> None:
+    """Starts text blocks from message events but waits for a supported part."""
 
     events = _collect_stream_events(
         [
-            _created_event("resp_multi_part_message"),
-            _message_added_event("msg_multi_part_message"),
+            _created_event("resp_unsupported_text_part"),
+            _message_added_event("msg_unsupported_text_part"),
+            _message_text_part_event(None),
+            _message_text_delta_event("output_text", "Ignored"),
             _message_text_part_event("output_text"),
-            _message_text_delta_event("output_text", "A"),
-            _message_text_part_event("refusal"),
-            _message_text_delta_event("output_text", "Wrong"),
-            _message_text_delta_event("refusal", "B"),
-            _message_done_event("msg_multi_part_message", "AB"),
+            _message_text_delta_event("output_text", "Shown"),
+            _message_done_event("msg_unsupported_text_part", "Shown"),
             _completed_event("stop"),
         ]
     )
 
     text_start = _expect_event_type(events[1], TextStartEvent)
-    text_delta_one = _expect_event_type(events[2], TextDeltaEvent)
-    text_delta_two = _expect_event_type(events[3], TextDeltaEvent)
-    text_end = _expect_event_type(events[4], TextEndEvent)
-    done = _expect_event_type(events[5], StreamDoneEvent)
-    text_block = _expect_text_block(text_end.block)
-    done_text_block = _expect_text_block(done.blocks[0])
+    text_delta = _expect_event_type(events[2], TextDeltaEvent)
+    text_end = _expect_event_type(events[3], TextEndEvent)
+    done = _expect_event_type(events[4], StreamDoneEvent)
 
     assert [event.type for event in events] == [
         "stream_started",
         "text_start",
         "text_delta",
-        "text_delta",
         "text_end",
         "stream_done",
     ]
     assert text_start.content_index == 0
-    assert text_delta_one.content_index == 0
-    assert text_delta_two.content_index == 0
-    assert text_end.content_index == 0
-    assert text_delta_one.delta == "A"
-    assert text_delta_two.delta == "B"
-    assert text_block.text == "AB"
-    assert len(done.blocks) == 1
-    assert done_text_block.text == "AB"
+    assert text_delta.content_index == 0
+    assert text_delta.delta == "Shown"
+    assert _expect_text_block(text_end.block).text == "Shown"
+    assert _expect_text_block(done.blocks[0]).text == "Shown"
 
 
 def test_assemble_stream_maps_tool_call_events() -> None:

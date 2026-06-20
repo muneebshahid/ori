@@ -58,8 +58,6 @@ class StreamAssemblyState:
     active_block: AssistantBlock | None = None
     active_block_index: int | None = None
     active_text_part_type: TextPartType | None = None
-    pending_message_id: str | None = None
-    pending_phase: str | None = None
 
 
 async def assemble_stream(
@@ -98,10 +96,10 @@ def _yield_stream_event(
             return _finalize_reasoning_block(state, reasoning_done_event)
         case NormalizedEventType.MESSAGE_ADDED:
             message_added_event = cast(MessageAddedNormalizedEvent, event)
-            _record_message_start(state, message_added_event)
+            return _start_text_block(state, message_added_event)
         case NormalizedEventType.MESSAGE_TEXT_PART:
             text_part_event = cast(MessageTextPartNormalizedEvent, event)
-            return _activate_text_part(state, text_part_event["part_type"])
+            _activate_text_part(state, text_part_event["part_type"])
         case NormalizedEventType.MESSAGE_TEXT_DELTA:
             text_delta_event = cast(MessageTextDeltaNormalizedEvent, event)
             return _append_text_delta(state, text_delta_event)
@@ -143,16 +141,6 @@ def _record_created_event(
 
     state.response_id = event["response_id"]
     return StreamStartedEvent(source=state.source, response_id=state.response_id)
-
-
-def _record_message_start(
-    state: StreamAssemblyState,
-    event: MessageAddedNormalizedEvent,
-) -> None:
-    """Record OpenAI message metadata before text content starts."""
-
-    state.pending_message_id = event["item_id"]
-    state.pending_phase = event["phase"]
 
 
 def _start_reasoning_block(state: StreamAssemblyState) -> ReasoningStartEvent:
@@ -198,29 +186,26 @@ def _finalize_reasoning_block(
     return ReasoningEndEvent(content_index=content_index, block=event_block)
 
 
+def _start_text_block(
+    state: StreamAssemblyState,
+    event: MessageAddedNormalizedEvent,
+) -> TextStartEvent:
+    """Start a text block and return its stream event."""
+
+    block = TextBlock(text="")
+    state.active_text_part_type = None
+    content_index = _append_active_block(state, block)
+    return TextStartEvent(content_index=content_index)
+
+
 def _activate_text_part(
     state: StreamAssemblyState,
     part_type: TextPartType | None,
-) -> TextStartEvent | None:
-    """Start tracking a supported text part."""
-
-    state.active_text_part_type = part_type
-    if part_type is None:
-        return None
+) -> None:
+    """Track the active supported text part for subsequent deltas."""
 
     if isinstance(state.active_block, TextBlock):
-        return None
-
-    block = TextBlock(
-        text="",
-        text_part=part_type,
-        provider_metadata=_build_metadata(
-            message_id=state.pending_message_id,
-            phase=state.pending_phase,
-        ),
-    )
-    content_index = _append_active_block(state, block)
-    return TextStartEvent(content_index=content_index, text_part=part_type)
+        state.active_text_part_type = part_type
 
 
 def _append_text_delta(

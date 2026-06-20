@@ -7,7 +7,6 @@ from pydantic import BaseModel, Field
 from ai.types.tools import JsonObject
 
 Phase: TypeAlias = Literal["commentary", "final_answer"]
-TextPartType: TypeAlias = Literal["output_text", "refusal"]
 StopReason: TypeAlias = Literal["stop", "length", "tool_use", "error", "aborted"]
 
 
@@ -29,7 +28,6 @@ class TextBlock(BaseModel):
 
     type: Literal["text"] = "text"
     text: str
-    text_part: TextPartType = "output_text"
     provider_metadata: ProviderMetadata | None = None
 
     @property
@@ -127,7 +125,6 @@ class TextStartEvent(BlockStreamEvent):
     """Marks the start of a text block."""
 
     type: Literal["text_start"] = "text_start"
-    text_part: TextPartType = "output_text"
 
 
 class TextDeltaEvent(BlockStreamEvent):

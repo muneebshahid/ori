@@ -3,8 +3,8 @@
 This document maps raw OpenAI stream events from both supported transports to the final agent-facing events. The executable source of truth is still the test suite:
 
 - `tests/test_openai_provider.py` covers raw SDK and subscription payloads through provider stream events.
-- `tests/test_openai_stream_assembler.py` covers normalized events through app stream events.
-- `tests/test_agent.py` covers app stream events through agent events.
+- `tests/test_openai_stream_assembler.py` covers normalized events through provider stream events.
+- `tests/test_agent.py` covers provider stream events through agent events.
 
 The diagrams below use actor-style Mermaid sequence diagrams. Columns are stages in the pipeline, and time flows from top to bottom.
 
@@ -127,16 +127,17 @@ sequenceDiagram
     Sub->>Adapter: response.output_item.added(item.type=message)
     Adapter->>Norm: MESSAGE_ADDED(item_id, phase)
     Norm->>Asm: MESSAGE_ADDED
-    Asm-->>Asm: record message metadata; wait for text part
+    Asm-->>Asm: append TextBlock and set active_block_index
+    Asm->>Stream: TextStartEvent(content_index)
+    Stream->>Agent: text_start
+    Agent-->>Agent: emit MessageUpdateEvent
 
     SDK->>Adapter: ResponseContentPartAddedEvent
     Sub->>Adapter: response.content_part.added
     Adapter->>Norm: MESSAGE_TEXT_PART(output_text | refusal | None)
     Norm->>Asm: MESSAGE_TEXT_PART
-    Asm-->>Asm: set active_text_part_type and append TextBlock for supported parts
-    Asm->>Stream: TextStartEvent(content_index, text_part)
-    Stream->>Agent: text_start
-    Agent-->>Agent: emit MessageUpdateEvent
+    Asm-->>Asm: set active_text_part_type for subsequent deltas
+    Note over Asm: No StreamEvent is emitted for content-part activation.
 
     SDK->>Adapter: ResponseTextDeltaEvent
     Sub->>Adapter: response.output_text.delta
@@ -322,8 +323,8 @@ sequenceDiagram
 | `ResponseReasoningTextDeltaEvent` | `response.reasoning_text.delta` | `REASONING_DELTA` | `ReasoningDeltaEvent` | `MessageUpdateEvent` |
 | `ResponseReasoningSummaryPartDoneEvent` | `response.reasoning_summary_part.done` | `REASONING_DELTA` with paragraph separator | `ReasoningDeltaEvent` | `MessageUpdateEvent` |
 | `ResponseOutputItemDoneEvent` with reasoning item | `response.output_item.done` with `item.type=reasoning` | `REASONING_DONE` | `ReasoningEndEvent` | `MessageUpdateEvent` |
-| `ResponseOutputItemAddedEvent` with message item | `response.output_item.added` with `item.type=message` | `MESSAGE_ADDED` | Records provider message metadata | No direct event |
-| `ResponseContentPartAddedEvent` | `response.content_part.added` | `MESSAGE_TEXT_PART` | `TextStartEvent` for supported text parts | `MessageUpdateEvent` |
+| `ResponseOutputItemAddedEvent` with message item | `response.output_item.added` with `item.type=message` | `MESSAGE_ADDED` | Starts the text block | `TextStartEvent` |
+| `ResponseContentPartAddedEvent` | `response.content_part.added` | `MESSAGE_TEXT_PART` | Sets active text part for subsequent deltas | No direct event |
 | `ResponseTextDeltaEvent` | `response.output_text.delta` | `MESSAGE_TEXT_DELTA(output_text)` | `TextDeltaEvent` if output text is active | `MessageUpdateEvent` |
 | `ResponseRefusalDeltaEvent` | `response.refusal.delta` | `MESSAGE_TEXT_DELTA(refusal)` | `TextDeltaEvent` if refusal is active | `MessageUpdateEvent` |
 | `ResponseOutputItemDoneEvent` with message item | `response.output_item.done` with `item.type=message` | `MESSAGE_DONE` | `TextEndEvent` | `MessageUpdateEvent` |
