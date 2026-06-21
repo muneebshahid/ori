@@ -186,6 +186,15 @@ def _expect_tool_result_turn(item: ConversationItem) -> ToolResultTurn:
     return item
 
 
+class FalsyHistoryStore(InMemoryHistoryStore):
+    """History store that is falsey even when injected."""
+
+    def __bool__(self) -> bool:
+        """Return false to exercise explicit None defaulting."""
+
+        return False
+
+
 def _sample_tools() -> list[ToolDefinition]:
     """Build deterministic tool definitions for runtime tests."""
 
@@ -230,7 +239,7 @@ def test_runtime_creates_generated_and_explicit_sessions() -> None:
 
 
 def test_session_history_is_read_only_snapshot() -> None:
-    """Expose completed session history without exposing the mutable store list."""
+    """Expose defensive history copies without leaking mutable stored items."""
 
     store = InMemoryHistoryStore()
     runtime = AgentRuntime(
@@ -239,13 +248,33 @@ def test_session_history_is_read_only_snapshot() -> None:
         history_store=store,
     )
     session = runtime.session(session_id="snapshot")
+    user_message = UserMessage(content="hello")
 
-    store.append_history("snapshot", [UserMessage(content="hello")])
+    store.append_history("snapshot", [user_message])
+    user_message.content = "mutated original"
     history = session.history
+    first_item = _expect_user_message(history[0])
 
     assert isinstance(history, tuple)
-    assert history == (UserMessage(content="hello"),)
+    assert first_item.content == "hello"
+    first_item.content = "mutated snapshot"
     assert store.get_history("snapshot") == (UserMessage(content="hello"),)
+
+
+def test_runtime_preserves_falsy_injected_history_store() -> None:
+    """Use an injected history store even when the store is falsey."""
+
+    store = FalsyHistoryStore()
+    runtime = AgentRuntime(
+        stream_fn=build_stream_fn([], []),
+        model="gpt-5.4",
+        history_store=store,
+    )
+
+    session = runtime.session(session_id="configured-store")
+
+    assert session.id == "configured-store"
+    assert store.get_session("configured-store").session_id == "configured-store"
 
 
 def test_history_store_rejects_unknown_session_writes() -> None:

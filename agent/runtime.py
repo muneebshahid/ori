@@ -34,7 +34,9 @@ class AgentRuntime:
 
         self._stream_fn = stream_fn
         self._model = model
-        self._history_store = history_store or InMemoryHistoryStore()
+        self._history_store = (
+            history_store if history_store is not None else InMemoryHistoryStore()
+        )
         self._tools = tuple(tools)
         self._reasoning = reasoning
         self._system_prompt = system_prompt

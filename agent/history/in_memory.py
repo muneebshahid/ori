@@ -46,7 +46,7 @@ class InMemoryHistoryStore:
         """Return completed conversation history for a session."""
 
         self._require_session(session_id)
-        return tuple(self._items_by_session[session_id])
+        return tuple(_copy_history_items(self._items_by_session[session_id]))
 
     def append_history(
         self,
@@ -56,10 +56,18 @@ class InMemoryHistoryStore:
         """Append completed conversation items to a session."""
 
         self._require_session(session_id)
-        self._items_by_session[session_id].extend(items)
+        self._items_by_session[session_id].extend(_copy_history_items(items))
 
     def _require_session(self, session_id: str) -> None:
         """Raise a clear error when a session id is unknown."""
 
         if session_id not in self._sessions:
             raise SessionNotFoundError(f"Unknown session: {session_id}")
+
+
+def _copy_history_items(
+    items: Sequence[ConversationItem],
+) -> list[ConversationItem]:
+    """Return defensive deep copies of conversation items."""
+
+    return [item.model_copy(deep=True) for item in items]
