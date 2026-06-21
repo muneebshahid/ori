@@ -277,7 +277,7 @@ def _final_text_stream(*, response_id: str, text: str) -> list[ProviderStreamEve
 
 
 def test_run_agent_does_not_mutate_supplied_history() -> None:
-    """Keep caller-owned history unchanged and return only run-local items."""
+    """Keep caller-owned history unchanged while emitting stable events."""
 
     invocations: list[StreamInvocation] = []
     stream_fn = build_stream_fn(
@@ -293,10 +293,10 @@ def test_run_agent_does_not_mutate_supplied_history() -> None:
 
     events = _collect_run_events(history, stream_fn=stream_fn)
 
-    agent_end = _expect_event_type(events[-1], AgentEndEvent)
+    message_end = _expect_event_type(events[3], MessageEndEvent)
+    _expect_event_type(events[-1], AgentEndEvent)
     assert history == [UserMessage(content="Hello, piy")]
-    assert len(agent_end.new_items) == 1
-    assert _expect_assistant_turn(agent_end.new_items[0]).response_id == "resp_done"
+    assert message_end.assistant_turn.response_id == "resp_done"
 
 
 def test_agent_run_yields_current_events_for_tool_use_loop() -> None:
@@ -411,7 +411,7 @@ def test_agent_run_yields_current_events_for_tool_use_loop() -> None:
     second_text_end = _expect_event_type(events[17], MessageUpdateEvent)
     second_message_end = _expect_event_type(events[18], MessageEndEvent)
     second_turn_end = _expect_event_type(events[19], TurnEndEvent)
-    agent_end = _expect_event_type(events[20], AgentEndEvent)
+    _expect_event_type(events[20], AgentEndEvent)
     first_final_message = _expect_agent_assistant_turn(first_message_end.assistant_turn)
     second_final_message = _expect_agent_assistant_turn(
         second_message_end.assistant_turn
@@ -463,14 +463,22 @@ def test_agent_run_yields_current_events_for_tool_use_loop() -> None:
         '{"temperature_c": 18, "condition": "sunny", "city": "Munich"}'
     )
     assert tool_execution_end.is_error is False
+    assert tool_execution_end.tool_result_turn.call_id == "call_123"
+    assert tool_execution_end.tool_result_turn.tool_name == "get_weather"
+    assert (
+        tool_execution_end.tool_result_turn.content == tool_execution_end.result.content
+    )
+    assert tool_execution_end.tool_result_turn.is_error is False
     assert first_turn_end.assistant_turn.response_id == "resp_tool_call"
     assert first_turn_end.assistant_turn.stop_reason == "tool_use"
     assert first_turn_end.assistant_turn.status == "completed"
     assert first_turn_end.assistant_turn.blocks == [tool_call_block]
-    assert first_turn_end.tool_results[0].call_id == "call_123"
-    assert first_turn_end.tool_results[0].tool_name == "get_weather"
-    assert first_turn_end.tool_results[0].content == tool_execution_end.result.content
-    assert first_turn_end.tool_results[0].is_error is False
+    assert first_turn_end.tool_result_turns[0].call_id == "call_123"
+    assert first_turn_end.tool_result_turns[0].tool_name == "get_weather"
+    assert (
+        first_turn_end.tool_result_turns[0].content == tool_execution_end.result.content
+    )
+    assert first_turn_end.tool_result_turns[0].is_error is False
     assert second_turn_start.type == "turn_start"
     assert second_message_start.response_id == "resp_follow_up"
     assert second_text_start.stream_event.type == "text_start"
@@ -491,7 +499,7 @@ def test_agent_run_yields_current_events_for_tool_use_loop() -> None:
     assert second_turn_end.assistant_turn.blocks == [
         TextBlock(text="It is sunny in Munich.")
     ]
-    assert second_turn_end.tool_results == []
+    assert second_turn_end.tool_result_turns == []
     assert len(invocations) == 2
     assert invocations[0].model == "gpt-5.4"
     assert invocations[0].tools == tuple(tools)
@@ -502,13 +510,6 @@ def test_agent_run_yields_current_events_for_tool_use_loop() -> None:
     assert first_request_user.content == "What is the weather in Munich?"
     assert second_request_assistant.response_id == "resp_tool_call"
     assert second_request_tool_result.tool_name == "get_weather"
-    assert len(agent_end.new_items) == 3
-    first_item = _expect_assistant_turn(agent_end.new_items[0])
-    second_item = _expect_tool_result_turn(agent_end.new_items[1])
-    third_item = _expect_assistant_turn(agent_end.new_items[2])
-    assert first_item.response_id == "resp_tool_call"
-    assert second_item.tool_name == "get_weather"
-    assert third_item.response_id == "resp_follow_up"
 
 
 def test_agent_run_executes_registered_tool_definition() -> None:
@@ -587,13 +588,13 @@ def test_agent_run_continues_after_tool_execution_error() -> None:
 
     tool_execution_end = _expect_event_type(events[5], ToolExecutionEndEvent)
     second_request_tool_result = _expect_tool_result_turn(invocations[1].history[2])
-    agent_end = _expect_event_type(events[-1], AgentEndEvent)
+    _expect_event_type(events[-1], AgentEndEvent)
     assert tool_execution_end.is_error is True
     assert _tool_text(tool_execution_end.result) == "boom"
+    assert tool_execution_end.tool_result_turn.is_error is True
+    assert tool_execution_end.tool_result_turn.tool_name == "fail_weather"
     assert second_request_tool_result.is_error is True
     assert second_request_tool_result.tool_name == "fail_weather"
-    assert len(agent_end.new_items) == 3
-    assert _expect_tool_result_turn(agent_end.new_items[1]).is_error is True
 
 
 def test_agent_run_handles_multiple_tool_use_turns() -> None:
@@ -623,7 +624,7 @@ def test_agent_run_handles_multiple_tool_use_turns() -> None:
 
     events = _collect_run_events(history, stream_fn=stream_fn, tools=tools)
 
-    agent_end = _expect_event_type(events[-1], AgentEndEvent)
+    _expect_event_type(events[-1], AgentEndEvent)
     assert len(invocations) == 3
     assert len(invocations[1].history) == 3
     assert len(invocations[2].history) == 5
@@ -635,16 +636,6 @@ def test_agent_run_handles_multiple_tool_use_turns() -> None:
         "resp_tool_call_2"
     )
     assert _expect_tool_result_turn(invocations[2].history[4]).call_id == "call_2"
-    assert len(agent_end.new_items) == 5
-    assert _expect_assistant_turn(agent_end.new_items[0]).response_id == (
-        "resp_tool_call_1"
-    )
-    assert _expect_tool_result_turn(agent_end.new_items[1]).call_id == "call_1"
-    assert _expect_assistant_turn(agent_end.new_items[2]).response_id == (
-        "resp_tool_call_2"
-    )
-    assert _expect_tool_result_turn(agent_end.new_items[3]).call_id == "call_2"
-    assert _expect_assistant_turn(agent_end.new_items[4]).response_id == "resp_final"
 
 
 def test_agent_includes_cwd_in_stream_instructions(tmp_path: Path) -> None:
@@ -726,7 +717,7 @@ def test_agent_run_yields_error_turn_end_for_stream_error() -> None:
     message_start = _expect_event_type(events[2], MessageStartEvent)
     message_end = _expect_event_type(events[3], MessageEndEvent)
     turn_end = _expect_event_type(events[4], TurnEndEvent)
-    agent_end = _expect_event_type(events[5], AgentEndEvent)
+    _expect_event_type(events[5], AgentEndEvent)
     final_message = _expect_agent_assistant_turn(message_end.assistant_turn)
 
     assert isinstance(events[0], AgentStartEvent)
@@ -738,10 +729,7 @@ def test_agent_run_yields_error_turn_end_for_stream_error() -> None:
     assert turn_end.assistant_turn.stop_reason == "error"
     assert turn_end.assistant_turn.status == "error"
     assert turn_end.assistant_turn.error_message == "Socket closed"
-    assert turn_end.tool_results == []
+    assert turn_end.tool_result_turns == []
     assert len(invocations) == 1
     first_request_user = _expect_user_message(invocations[0].history[0])
     assert first_request_user.content == "Say hello"
-    assert len(agent_end.new_items) == 1
-    first_item = _expect_assistant_turn(agent_end.new_items[0])
-    assert first_item.response_id == "resp_error"
