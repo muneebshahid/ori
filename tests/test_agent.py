@@ -190,17 +190,6 @@ def _source() -> ProviderSource:
     return ProviderSource(provider="test", model="gpt-5.4")
 
 
-def _metadata(**values: str | None) -> ProviderMetadata | None:
-    """Build provider metadata from non-empty string values."""
-
-    data: JsonObject = {
-        key: value for key, value in values.items() if value is not None
-    }
-    if not data:
-        return None
-    return ProviderMetadata(data=data)
-
-
 def _stream_start(response_id: str) -> StreamStartEvent:
     """Build a deterministic stream started event."""
 
@@ -246,7 +235,9 @@ def _tool_call_block(
         call_id=call_id,
         name=name,
         arguments=arguments,
-        provider_metadata=_metadata(provider_item_id=provider_item_id),
+        provider_metadata=ProviderMetadata.from_values(
+            provider_item_id=provider_item_id
+        ),
     )
 
 

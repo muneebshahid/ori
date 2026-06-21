@@ -15,7 +15,6 @@ raw OpenAI events correspond to application stream events.
 import asyncio
 import json
 from collections.abc import Sequence
-from typing import TypeVar
 from unittest.mock import patch
 
 import pytest
@@ -25,21 +24,16 @@ from ai.openai.serialization import serialize_history_items
 from ai.openai.subscription_event_adapter import SubscriptionEventPayload
 from ai.types.conversation import UserMessage
 from ai.types.stream_events import (
-    AssistantBlock,
     ProviderStreamEvent,
-    ReasoningBlock,
     ReasoningDeltaEvent,
     ReasoningEndEvent,
     ReasoningStartEvent,
     StreamDoneEvent,
     StreamErrorEvent,
-    StreamEvent,
     StreamStartEvent,
-    TextBlock,
     TextDeltaEvent,
     TextEndEvent,
     TextStartEvent,
-    ToolCallBlock,
     ToolCallDeltaEvent,
     ToolCallEndEvent,
     ToolCallStartEvent,
@@ -70,43 +64,13 @@ from tests.support.openai_response_events import (
     text_delta_event as _text_delta_event,
     unsupported_content_part_added_event as _unsupported_content_part_added_event,
 )
-
-TEvent = TypeVar("TEvent", bound=StreamEvent)
-
-
-def _expect_event_type(event: StreamEvent, event_type: type[TEvent]) -> TEvent:
-    assert isinstance(event, event_type)
-    return event
-
-
-def _expect_reasoning_block(
-    block: TextBlock | ReasoningBlock | ToolCallBlock,
-) -> ReasoningBlock:
-    assert isinstance(block, ReasoningBlock)
-    return block
-
-
-def _expect_text_block(
-    block: TextBlock | ReasoningBlock | ToolCallBlock,
-) -> TextBlock:
-    assert isinstance(block, TextBlock)
-    return block
-
-
-def _expect_tool_call_block(
-    block: TextBlock | ReasoningBlock | ToolCallBlock,
-) -> ToolCallBlock:
-    assert isinstance(block, ToolCallBlock)
-    return block
-
-
-def _expect_metadata_string(
-    block: AssistantBlock,
-    key: str,
-) -> str:
-    value = block.metadata_string(key)
-    assert value is not None
-    return value
+from tests.support.stream_assertions import (
+    expect_metadata_string as _expect_metadata_string,
+    expect_reasoning_block as _expect_reasoning_block,
+    expect_stream_event as _expect_event_type,
+    expect_text_block as _expect_text_block,
+    expect_tool_call_block as _expect_tool_call_block,
+)
 
 
 def _collect_events(
