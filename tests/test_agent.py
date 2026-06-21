@@ -8,10 +8,10 @@ or ``error``, and executes tools before starting a follow-up assistant turn.
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Sequence
-from dataclasses import dataclass
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TypeVar
+
 from agent.agent import run_agent
 from agent.types import (
     AgentEndEvent,
@@ -57,66 +57,10 @@ from ai.types.stream_events import (
     ToolCallStartEvent,
 )
 from ai.types.tools import JsonObject, ToolDefinition, ToolResult, ToolTextContent
+from tests.support.agent_streams import StreamInvocation, build_stream_fn
 
 TEvent = TypeVar("TEvent", bound=AgentEvent)
 TStreamEvent = TypeVar("TStreamEvent", bound=StreamEvent)
-
-
-@dataclass
-class StreamInvocation:
-    """Captured arguments from one provider stream invocation."""
-
-    history: tuple[ConversationItem, ...]
-    model: str
-    instructions: str
-    reasoning: Reasoning | None
-    tools: tuple[ToolDefinition, ...] | None
-
-
-def _iter_events(
-    events: Sequence[ProviderStreamEvent],
-) -> AsyncIterator[ProviderStreamEvent]:
-    """Yield static stream events asynchronously."""
-
-    async def _iterate() -> AsyncIterator[ProviderStreamEvent]:
-        """Yield each provided stream event."""
-
-        for event in events:
-            yield event
-
-    return _iterate()
-
-
-def _build_stream_fn(
-    streams: Sequence[Sequence[ProviderStreamEvent]],
-    invocations: list[StreamInvocation],
-) -> StreamFn:
-    """Build a provider stream function that records each invocation."""
-
-    pending_streams = list(streams)
-
-    async def _stream_fn(
-        history: Sequence[ConversationItem],
-        model: str,
-        *,
-        instructions: str,
-        reasoning: Reasoning | None,
-        tools: Sequence[ToolDefinition] | None,
-    ) -> AsyncIterator[ProviderStreamEvent]:
-        """Return the next queued provider event stream."""
-
-        invocations.append(
-            StreamInvocation(
-                history=tuple(history),
-                model=model,
-                instructions=instructions,
-                reasoning=reasoning,
-                tools=tuple(tools) if tools is not None else None,
-            )
-        )
-        return _iter_events(pending_streams.pop(0))
-
-    return _stream_fn
 
 
 def _collect_run_events(
@@ -345,7 +289,7 @@ def test_run_agent_does_not_mutate_supplied_history() -> None:
     """Keep caller-owned history unchanged and return only run-local items."""
 
     invocations: list[StreamInvocation] = []
-    stream_fn = _build_stream_fn(
+    stream_fn = build_stream_fn(
         streams=[
             [
                 _stream_start("resp_done"),
@@ -377,7 +321,7 @@ def test_agent_run_yields_current_events_for_tool_use_loop() -> None:
         provider_item_id="fc_123",
     )
     text_block = TextBlock(text="It is sunny in Munich.")
-    stream_fn = _build_stream_fn(
+    stream_fn = build_stream_fn(
         streams=[
             [
                 _stream_start("resp_tool_call"),
@@ -581,7 +525,7 @@ def test_agent_run_executes_registered_tool_definition() -> None:
 
     tools = _sample_tools()
     invocations: list[StreamInvocation] = []
-    stream_fn = _build_stream_fn(
+    stream_fn = build_stream_fn(
         streams=[
             [
                 _stream_start("resp_tool_call"),
@@ -631,7 +575,7 @@ def test_agent_run_continues_after_tool_execution_error() -> None:
         fn=_raise_tool_error,
     )
     invocations: list[StreamInvocation] = []
-    stream_fn = _build_stream_fn(
+    stream_fn = build_stream_fn(
         streams=[
             _tool_call_stream(
                 response_id="resp_tool_call",
@@ -666,7 +610,7 @@ def test_agent_run_handles_multiple_tool_use_turns() -> None:
 
     tools = _sample_tools()
     invocations: list[StreamInvocation] = []
-    stream_fn = _build_stream_fn(
+    stream_fn = build_stream_fn(
         streams=[
             _tool_call_stream(
                 response_id="resp_tool_call_1",
@@ -716,7 +660,7 @@ def test_agent_includes_cwd_in_stream_instructions(tmp_path: Path) -> None:
     """Add the agent working directory to model instructions."""
 
     invocations: list[StreamInvocation] = []
-    stream_fn = _build_stream_fn(
+    stream_fn = build_stream_fn(
         streams=[
             [
                 _stream_start("resp_done"),
@@ -741,7 +685,7 @@ def test_agent_formats_cwd_prompt_variable(tmp_path: Path) -> None:
     """Apply cwd prompt variables before sending model instructions."""
 
     invocations: list[StreamInvocation] = []
-    stream_fn = _build_stream_fn(
+    stream_fn = build_stream_fn(
         streams=[
             [
                 _stream_start("resp_done"),
@@ -766,7 +710,7 @@ def test_agent_run_yields_error_turn_end_for_stream_error() -> None:
     """Finalize an errored assistant stream as an error turn."""
 
     invocations: list[StreamInvocation] = []
-    stream_fn = _build_stream_fn(
+    stream_fn = build_stream_fn(
         streams=[
             [
                 _stream_start("resp_error"),
