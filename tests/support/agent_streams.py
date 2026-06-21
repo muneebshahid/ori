@@ -49,6 +49,9 @@ def build_stream_fn(
                 tools=tuple(tools) if tools is not None else None,
             )
         )
+        assert pending_streams, (
+            "Provider stream invoked more times than queued test streams."
+        )
         return async_stream(pending_streams.pop(0))
 
     return _stream_fn
