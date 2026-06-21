@@ -2,13 +2,14 @@
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import Sequence
 
 from ai.openai.normalized_events import NormalizedEvent, NormalizedEventType
 from ai.openai.subscription_event_adapter import (
     SubscriptionEventPayload,
     normalize_subscription_events,
 )
+from tests.support.async_streams import async_stream
 
 
 def test_normalize_subscription_events_maps_reasoning_message_and_done_payloads() -> (
@@ -237,17 +238,7 @@ def _collect_events(
     async def _collect() -> list[NormalizedEvent]:
         return [
             event
-            async for event in normalize_subscription_events(_raw_stream(raw_events))
+            async for event in normalize_subscription_events(async_stream(raw_events))
         ]
 
     return asyncio.run(_collect())
-
-
-def _raw_stream(
-    raw_events: Sequence[SubscriptionEventPayload],
-) -> AsyncIterator[SubscriptionEventPayload]:
-    async def _iterate() -> AsyncIterator[SubscriptionEventPayload]:
-        for event in raw_events:
-            yield event
-
-    return _iterate()

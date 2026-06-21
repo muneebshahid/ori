@@ -8,8 +8,7 @@ such as ``text_start``, ``text_delta``, ``text_end``, and ``stream_done``.
 """
 
 import asyncio
-from collections.abc import AsyncIterator, Sequence
-from typing import TypeVar
+from collections.abc import Sequence
 
 from ai.openai.normalized_events import (
     CompletedNormalizedEvent,
@@ -33,31 +32,32 @@ from ai.openai.normalized_events import (
 )
 from ai.openai.stream_assembler import assemble_stream
 from ai.types.stream_events import (
-    AssistantBlock,
     Phase,
     ProviderSource,
     ProviderStreamEvent,
-    ReasoningBlock,
     ReasoningDeltaEvent,
     ReasoningEndEvent,
     ReasoningStartEvent,
     StreamDoneEvent,
     StreamErrorEvent,
-    StreamEvent,
     StreamStartEvent,
     StopReason,
-    TextBlock,
     TextDeltaEvent,
     TextEndEvent,
     TextStartEvent,
-    ToolCallBlock,
     ToolCallDeltaEvent,
     ToolCallEndEvent,
     ToolCallStartEvent,
 )
 from ai.types.tools import JsonObject
-
-TEvent = TypeVar("TEvent", bound=StreamEvent)
+from tests.support.async_streams import async_stream
+from tests.support.stream_assertions import (
+    expect_metadata_string as _expect_metadata_string,
+    expect_reasoning_block as _expect_reasoning_block,
+    expect_stream_event as _expect_event_type,
+    expect_text_block as _expect_text_block,
+    expect_tool_call_block as _expect_tool_call_block,
+)
 
 
 def test_assemble_stream_accumulates_reasoning_and_text_blocks() -> None:
@@ -483,7 +483,7 @@ def _collect_stream_events(
         return [
             event
             async for event in assemble_stream(
-                _normalized_stream(normalized_events),
+                async_stream(normalized_events),
                 source=_source(),
             )
         ]
@@ -495,18 +495,6 @@ def _source() -> ProviderSource:
     """Build a deterministic provider source for assembler tests."""
 
     return ProviderSource(provider="openai", model="gpt-5.4")
-
-
-def _normalized_stream(
-    normalized_events: Sequence[NormalizedEvent],
-) -> AsyncIterator[NormalizedEvent]:
-    """Yield normalized provider events from a static sequence."""
-
-    async def _iterate() -> AsyncIterator[NormalizedEvent]:
-        for normalized_event in normalized_events:
-            yield normalized_event
-
-    return _iterate()
 
 
 def _created_event(response_id: str) -> CreatedNormalizedEvent:
@@ -688,48 +676,3 @@ def _failed_event(message: str) -> FailedNormalizedEvent:
         "type": NormalizedEventType.FAILED,
         "message": message,
     }
-
-
-def _expect_event_type(event: StreamEvent, event_type: type[TEvent]) -> TEvent:
-    """Casts a stream event to the expected runtime type."""
-
-    assert isinstance(event, event_type)
-    return event
-
-
-def _expect_reasoning_block(
-    block: TextBlock | ReasoningBlock | ToolCallBlock,
-) -> ReasoningBlock:
-    """Casts an assistant block to a reasoning block."""
-
-    assert isinstance(block, ReasoningBlock)
-    return block
-
-
-def _expect_text_block(
-    block: TextBlock | ReasoningBlock | ToolCallBlock,
-) -> TextBlock:
-    """Casts an assistant block to a text block."""
-
-    assert isinstance(block, TextBlock)
-    return block
-
-
-def _expect_tool_call_block(
-    block: TextBlock | ReasoningBlock | ToolCallBlock,
-) -> ToolCallBlock:
-    """Casts an assistant block to a tool-call block."""
-
-    assert isinstance(block, ToolCallBlock)
-    return block
-
-
-def _expect_metadata_string(
-    block: AssistantBlock,
-    key: str,
-) -> str:
-    """Assert that a block contains a provider metadata string value."""
-
-    value = block.metadata_string(key)
-    assert value is not None
-    return value

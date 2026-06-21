@@ -3,29 +3,25 @@
 import asyncio
 import io
 import json
-from collections.abc import AsyncIterator, Sequence
 
 import pytest
 
-from agent.types import StreamFn
-from ai.types.contracts import Reasoning
-from ai.types.conversation import ConversationItem, UserMessage
+from ai.types.conversation import UserMessage
 from ai.types.stream_events import (
     ProviderSource,
-    ProviderStreamEvent,
     StreamDoneEvent,
     StreamStartEvent,
 )
-from ai.types.tools import ToolDefinition
 from examples import local_runner
 from examples.local_runner import run_cli, run_prompt
+from tests.support.agent_streams import StreamInvocation, build_stream_fn
 
 
 def test_run_prompt_streams_agent_events_as_json_lines() -> None:
     """Run one prompt through the local runner with a deterministic agent."""
 
-    invocations: list[tuple[ConversationItem, ...]] = []
-    stream_fn = _build_stream_fn([_start_event(), _done_event()], invocations)
+    invocations: list[StreamInvocation] = []
+    stream_fn = build_stream_fn([[_start_event(), _done_event()]], invocations)
     output = io.StringIO()
 
     asyncio.run(
@@ -48,8 +44,8 @@ def test_run_prompt_streams_agent_events_as_json_lines() -> None:
         "agent_end",
     ]
     assert len(invocations) == 1
-    assert len(invocations[0]) == 1
-    user_message = invocations[0][0]
+    assert len(invocations[0].history) == 1
+    user_message = invocations[0].history[0]
     assert isinstance(user_message, UserMessage)
     assert user_message.content == "Hello from CLI"
 
@@ -79,43 +75,6 @@ def test_run_cli_reads_prompt_from_stdin(monkeypatch: pytest.MonkeyPatch) -> Non
 
     assert status == 0
     assert prompts == ["Hello from stdin"]
-
-
-def _build_stream_fn(
-    stream_events: Sequence[ProviderStreamEvent],
-    invocations: list[tuple[ConversationItem, ...]],
-) -> StreamFn:
-    """Build a provider stream function that records supplied history."""
-
-    async def _stream_fn(
-        history: Sequence[ConversationItem],
-        model: str,
-        *,
-        instructions: str,
-        reasoning: Reasoning | None,
-        tools: Sequence[ToolDefinition] | None,
-    ) -> AsyncIterator[ProviderStreamEvent]:
-        """Return the static event stream expected by ``run_agent``."""
-
-        _ = history, model, instructions, reasoning, tools
-        invocations.append(tuple(history))
-        return _iter_stream_events(stream_events)
-
-    return _stream_fn
-
-
-def _iter_stream_events(
-    stream_events: Sequence[ProviderStreamEvent],
-) -> AsyncIterator[ProviderStreamEvent]:
-    """Yield static stream events asynchronously."""
-
-    async def _iterate() -> AsyncIterator[ProviderStreamEvent]:
-        """Yield each configured stream event."""
-
-        for event in stream_events:
-            yield event
-
-    return _iterate()
 
 
 def _start_event() -> StreamStartEvent:

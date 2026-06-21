@@ -22,14 +22,6 @@ async def _sample_tool_fn(city: str) -> ToolResult:
     return ToolResult.text(f"city={city}")
 
 
-def _metadata(**values: str | None) -> ProviderMetadata:
-    """Build provider metadata for replay fields in serialization tests."""
-
-    return ProviderMetadata(
-        data={key: value for key, value in values.items() if value is not None}
-    )
-
-
 def test_serialize_response_input_flattens_sample_thread() -> None:
     history = [
         UserMessage(content="Write a haiku about rain."),
@@ -38,13 +30,13 @@ def test_serialize_response_input_flattens_sample_thread() -> None:
             blocks=[
                 ReasoningBlock(
                     summary_text="Draft a short seasonal poem.",
-                    provider_metadata=_metadata(
+                    provider_metadata=ProviderMetadata.from_values(
                         reasoning_signature='{"id":"rs_123","type":"reasoning","summary":[{"type":"summary_text","text":"Draft a short seasonal poem."}],"encrypted_content":"enc_123","status":"completed"}',
                     ),
                 ),
                 TextBlock(
                     text="Soft rain on pine leaves\nSilver threads stitch dusk to earth\nNight drinks every sound",
-                    provider_metadata=_metadata(
+                    provider_metadata=ProviderMetadata.from_values(
                         message_id="msg_123",
                         phase="final_answer",
                     ),
@@ -194,13 +186,15 @@ def test_serialize_history_items_replays_tool_calls_and_tool_results() -> None:
             blocks=[
                 TextBlock(
                     text="Checking the weather.",
-                    provider_metadata=_metadata(message_id="msg_0"),
+                    provider_metadata=ProviderMetadata.from_values(message_id="msg_0"),
                 ),
                 ToolCallBlock(
                     call_id="call_123",
                     name="get_weather",
                     arguments={"city": "Berlin"},
-                    provider_metadata=_metadata(provider_item_id="fc_123"),
+                    provider_metadata=ProviderMetadata.from_values(
+                        provider_item_id="fc_123"
+                    ),
                 ),
             ]
         ),
