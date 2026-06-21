@@ -7,7 +7,13 @@ import pytest
 
 from agent.history import InMemoryHistoryStore, SessionNotFoundError
 from agent.runtime import AgentRuntime
-from agent.types import AgentEndEvent, AgentEvent, StreamFn
+from agent.types import (
+    AgentEndEvent,
+    AgentEvent,
+    MessageEndEvent,
+    StreamFn,
+    ToolExecutionEndEvent,
+)
 from ai.types.conversation import (
     AssistantTurn,
     ConversationItem,
@@ -57,6 +63,48 @@ def _collect_until_agent_end(
         async for event in session.prompt(content):
             events.append(event)
             if isinstance(event, AgentEndEvent):
+                break
+        return events
+
+    return asyncio.run(_collect())
+
+
+def _collect_until_message_end(
+    session_id: str,
+    runtime: AgentRuntime,
+    content: str,
+) -> list[AgentEvent]:
+    """Collect prompt events and stop immediately after message completion."""
+
+    async def _collect() -> list[AgentEvent]:
+        """Collect events until the first message end event is observed."""
+
+        events: list[AgentEvent] = []
+        session = runtime.get_session(session_id)
+        async for event in session.prompt(content):
+            events.append(event)
+            if isinstance(event, MessageEndEvent):
+                break
+        return events
+
+    return asyncio.run(_collect())
+
+
+def _collect_until_tool_execution_end(
+    session_id: str,
+    runtime: AgentRuntime,
+    content: str,
+) -> list[AgentEvent]:
+    """Collect prompt events and stop after the first tool result is emitted."""
+
+    async def _collect() -> list[AgentEvent]:
+        """Collect events until the first tool execution end event is observed."""
+
+        events: list[AgentEvent] = []
+        session = runtime.get_session(session_id)
+        async for event in session.prompt(content):
+            events.append(event)
+            if isinstance(event, ToolExecutionEndEvent):
                 break
         return events
 
@@ -209,8 +257,8 @@ def test_history_store_rejects_unknown_session_writes() -> None:
         store.append_history("missing", [UserMessage(content="hello")])
 
 
-def test_session_prompt_persists_user_and_agent_items() -> None:
-    """Persist the user message before the run and agent items after completion."""
+def test_session_prompt_persists_assistant_turn_at_message_end() -> None:
+    """Persist assistant history as soon as the message is stable."""
 
     invocations: list[StreamInvocation] = []
     runtime = _runtime_with_streams(
@@ -219,18 +267,19 @@ def test_session_prompt_persists_user_and_agent_items() -> None:
     )
     session = runtime.session(session_id="repo-debug", name="debug")
 
-    events = _collect_prompt_events(runtime, session.id, "hello")
+    events = _collect_until_message_end(
+        runtime=runtime, session_id=session.id, content="hello"
+    )
 
     agent_end = events[-1]
-    assert isinstance(agent_end, AgentEndEvent)
-    assert len(agent_end.new_items) == 1
+    assert isinstance(agent_end, MessageEndEvent)
     assert _expect_user_message(session.history[0]).content == "hello"
     assert _expect_assistant_turn(session.history[1]).response_id == "resp_one"
     assert _expect_user_message(invocations[0].history[0]).content == "hello"
 
 
 def test_session_prompt_persists_agent_end_before_consumer_stops() -> None:
-    """Persist agent-produced items before yielding the terminal event."""
+    """Keep history persisted when a consumer stops at the terminal event."""
 
     invocations: list[StreamInvocation] = []
     runtime = _runtime_with_streams(
@@ -320,6 +369,36 @@ def test_session_prompt_persists_tool_result_history() -> None:
     )
     assert _expect_assistant_turn(invocations[2].history[3]).response_id == "resp_final"
     assert _expect_user_message(invocations[2].history[4]).content == "what happened?"
+
+
+def test_session_prompt_persists_tool_result_at_execution_end() -> None:
+    """Persist tool result history as soon as tool execution is stable."""
+
+    invocations: list[StreamInvocation] = []
+    runtime = _runtime_with_streams(
+        [
+            _tool_call_stream(
+                response_id="resp_tool",
+                call_id="call_weather",
+                tool_name="get_weather",
+                arguments={"city": "Munich"},
+            ),
+            _final_text_stream("resp_final", "Munich is sunny."),
+        ],
+        invocations,
+        tools=_sample_tools(),
+    )
+    session = runtime.session(session_id="tool-execution-history")
+
+    events = _collect_until_tool_execution_end(session.id, runtime, "check weather")
+
+    tool_execution_end = events[-1]
+    assert isinstance(tool_execution_end, ToolExecutionEndEvent)
+    assert len(session.history) == 3
+    assert _expect_user_message(session.history[0]).content == "check weather"
+    assert _expect_assistant_turn(session.history[1]).response_id == "resp_tool"
+    assert _expect_tool_result_turn(session.history[2]).call_id == "call_weather"
+    assert tool_execution_end.tool_result_turn == session.history[2]
 
 
 def test_runtime_keeps_session_histories_independent() -> None:

@@ -13,7 +13,7 @@ from ai.types.tools import ToolDefinition
 from agent.agent import run_agent
 from agent.history import HistoryStore, InMemoryHistoryStore, SessionRecord
 from agent.prompt import PROMPT
-from agent.types import AgentEndEvent, AgentEvent, StreamFn
+from agent.types import AgentEvent, MessageEndEvent, StreamFn, ToolExecutionEndEvent
 
 
 class AgentRuntime:
@@ -91,7 +91,7 @@ class AgentRuntime:
             system_prompt=self._system_prompt,
             cwd=self._cwd,
         ):
-            self._persist_agent_end(session_id, event)
+            self._persist_stable_event(session_id, event)
             yield event
 
     def _append_user_message(self, session_id: str, content: str) -> None:
@@ -99,11 +99,13 @@ class AgentRuntime:
 
         self._history_store.append_history(session_id, [UserMessage(content=content)])
 
-    def _persist_agent_end(self, session_id: str, event: AgentEvent) -> None:
-        """Persist completed agent-produced items when a run ends."""
+    def _persist_stable_event(self, session_id: str, event: AgentEvent) -> None:
+        """Persist replayable history items from stable agent events."""
 
-        if isinstance(event, AgentEndEvent):
-            self._history_store.append_history(session_id, event.new_items)
+        if isinstance(event, MessageEndEvent):
+            self._history_store.append_history(session_id, [event.assistant_turn])
+        if isinstance(event, ToolExecutionEndEvent):
+            self._history_store.append_history(session_id, [event.tool_result_turn])
 
     def _build_session(self, record: SessionRecord) -> Session:
         """Build a session handle from a stored record."""

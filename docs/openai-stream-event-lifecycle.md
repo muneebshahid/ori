@@ -238,7 +238,7 @@ sequenceDiagram
     Agent->>Hist: append AssistantTurn to run-local history
     Agent-->>Agent: emit MessageEndEvent
     Agent-->>Agent: emit TurnEndEvent(tool_results=[])
-    Agent-->>Agent: emit AgentEndEvent(new_items=[...])
+    Agent-->>Agent: emit AgentEndEvent
 ```
 
 ## Completed Turn With Tools
@@ -262,8 +262,8 @@ sequenceDiagram
     Agent->>Tool: execute tool call
     Agent-->>Agent: emit ToolExecutionStartEvent
     Tool-->>Agent: result
-    Agent-->>Agent: emit ToolExecutionEndEvent
     Agent->>Hist: append ToolResultTurn to run-local history
+    Agent-->>Agent: emit ToolExecutionEndEvent(tool_result_turn)
     Agent-->>Agent: emit TurnEndEvent(tool_results=[...])
     Agent-->>Agent: request follow-up stream
     Note over Agent,Stream: The follow-up stream starts a new turn and repeats the same lifecycle.

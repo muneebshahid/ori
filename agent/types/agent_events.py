@@ -38,10 +38,9 @@ class AgentStartEvent(AgentEvent):
 
 
 class AgentEndEvent(AgentEvent):
-    """Marks the end of an agent run and returns new conversation items."""
+    """Marks the end of an agent run."""
 
     type: Literal["agent_end"] = "agent_end"
-    new_items: list[ConversationItem]
 
 
 class TurnStartEvent(AgentEvent):
@@ -55,7 +54,7 @@ class TurnEndEvent(AgentEvent):
 
     type: Literal["turn_end"] = "turn_end"
     assistant_turn: AssistantTurn
-    tool_results: list[ToolResultTurn]
+    tool_result_turns: list[ToolResultTurn]
 
 
 class MessageStartEvent(AgentEvent):
@@ -96,6 +95,7 @@ class ToolExecutionEndEvent(AgentEvent):
     tool_name: str
     result: ToolResult
     is_error: bool
+    tool_result_turn: ToolResultTurn
 
 
 AgentRunEvent: TypeAlias = (

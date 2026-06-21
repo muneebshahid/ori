@@ -64,13 +64,11 @@ async def run_agent(
     """Run one stateless agent turn from supplied model-visible history."""
 
     run_history = list(history)
-    new_items: list[ConversationItem] = []
     instructions = build_system_prompt(system_prompt, _resolve_cwd(cwd))
 
     yield AgentStartEvent()
     async for event in _run_agent_loop(
         run_history=run_history,
-        new_items=new_items,
         stream_fn=stream_fn,
         model=model,
         instructions=instructions,
@@ -78,13 +76,12 @@ async def run_agent(
         tools=tuple(tools),
     ):
         yield event
-    yield AgentEndEvent(new_items=new_items)
+    yield AgentEndEvent()
 
 
 async def _run_agent_loop(
     *,
     run_history: list[ConversationItem],
-    new_items: list[ConversationItem],
     stream_fn: StreamFn,
     model: str,
     instructions: str,
@@ -107,10 +104,12 @@ async def _run_agent_loop(
             async for agent_event in _handle_stream_event(
                 event,
                 run_history=run_history,
-                new_items=new_items,
                 tools=tools,
             ):
-                if isinstance(agent_event, TurnEndEvent) and agent_event.tool_results:
+                if (
+                    isinstance(agent_event, TurnEndEvent)
+                    and agent_event.tool_result_turns
+                ):
                     has_tool_results = True
                 yield agent_event
 
@@ -122,7 +121,6 @@ async def _handle_stream_event(
     event: ProviderStreamEvent,
     *,
     run_history: list[ConversationItem],
-    new_items: list[ConversationItem],
     tools: tuple[ToolDefinition, ...],
 ) -> AsyncIterator[AgentEvent]:
     """Route one provider stream event into agent-level events."""
@@ -135,7 +133,6 @@ async def _handle_stream_event(
             async for agent_event in _handle_stream_done_event(
                 event,
                 run_history=run_history,
-                new_items=new_items,
                 tools=tools,
             ):
                 yield agent_event
@@ -143,7 +140,6 @@ async def _handle_stream_event(
             async for agent_event in _handle_stream_error_event(
                 event,
                 run_history=run_history,
-                new_items=new_items,
             ):
                 yield agent_event
         case _ if isinstance(event, ASSISTANT_MESSAGE_UPDATE_EVENT_TYPES):
@@ -154,13 +150,12 @@ async def _handle_stream_done_event(
     event: StreamDoneEvent,
     *,
     run_history: list[ConversationItem],
-    new_items: list[ConversationItem],
     tools: tuple[ToolDefinition, ...],
 ) -> AsyncIterator[AgentEvent]:
     """Finalize an assistant message and execute requested tools."""
 
     turn = AssistantTurn.from_stream_done(event)
-    _append_new_item(turn, run_history=run_history, new_items=new_items)
+    run_history.append(turn)
     yield MessageEndEvent(assistant_turn=turn)
     tool_results: list[ToolResultTurn] = []
 
@@ -172,30 +167,25 @@ async def _handle_stream_done_event(
             tools=tools,
         ):
             if isinstance(agent_event, ToolExecutionEndEvent):
-                tool_result = _build_tool_result_turn(agent_event)
-                _append_new_item(
-                    tool_result,
-                    run_history=run_history,
-                    new_items=new_items,
-                )
+                tool_result = agent_event.tool_result_turn
+                run_history.append(tool_result)
                 tool_results.append(tool_result)
             yield agent_event
 
-    yield TurnEndEvent(assistant_turn=turn, tool_results=tool_results)
+    yield TurnEndEvent(assistant_turn=turn, tool_result_turns=tool_results)
 
 
 async def _handle_stream_error_event(
     event: StreamErrorEvent,
     *,
     run_history: list[ConversationItem],
-    new_items: list[ConversationItem],
 ) -> AsyncIterator[AgentEvent]:
     """Finalize a failed assistant message."""
 
     turn = AssistantTurn.from_stream_error(event)
-    _append_new_item(turn, run_history=run_history, new_items=new_items)
+    run_history.append(turn)
     yield MessageEndEvent(assistant_turn=turn)
-    yield TurnEndEvent(assistant_turn=turn, tool_results=[])
+    yield TurnEndEvent(assistant_turn=turn, tool_result_turns=[])
 
 
 async def _execute_tool(
@@ -214,11 +204,18 @@ async def _execute_tool(
     )
 
     result, is_error = await _call_tool(tool_name, arguments, tools)
+    tool_result_turn = ToolResultTurn(
+        call_id=call_id,
+        tool_name=tool_name,
+        content=result.content,
+        is_error=is_error,
+    )
     yield ToolExecutionEndEvent(
         call_id=call_id,
         tool_name=tool_name,
         result=result,
         is_error=is_error,
+        tool_result_turn=tool_result_turn,
     )
 
 
@@ -267,26 +264,3 @@ def _collect_tool_calls(blocks: Sequence[AssistantBlock]) -> list[ToolCallBlock]
         for block in blocks
         if isinstance(block, ToolCallBlock)
     ]
-
-
-def _build_tool_result_turn(event: ToolExecutionEndEvent) -> ToolResultTurn:
-    """Build a replayable tool result from a tool execution event."""
-
-    return ToolResultTurn(
-        call_id=event.call_id,
-        tool_name=event.tool_name,
-        content=event.result.content,
-        is_error=event.is_error,
-    )
-
-
-def _append_new_item(
-    item: ConversationItem,
-    *,
-    run_history: list[ConversationItem],
-    new_items: list[ConversationItem],
-) -> None:
-    """Append one generated item to local model history and run output."""
-
-    run_history.append(item)
-    new_items.append(item)
