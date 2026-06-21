@@ -33,6 +33,7 @@ from ai.openai.normalized_events import (
 )
 from ai.openai.stream_assembler import assemble_stream
 from ai.types.stream_events import (
+    AssistantBlock,
     Phase,
     ProviderSource,
     ProviderStreamEvent,
@@ -140,7 +141,13 @@ def test_assemble_stream_accumulates_reasoning_and_text_blocks() -> None:
         final_reasoning_block.summary_text
         == "Exploring reasoning traces\n\nFormulating reasoning traces"
     )
-    assert final_reasoning_block.reasoning_signature == '{"id":"rs_123"}'
+    assert (
+        _expect_metadata_string(
+            final_reasoning_block,
+            "reasoning_signature",
+        )
+        == '{"id":"rs_123"}'
+    )
     assert text_delta_one.delta == "Hello"
     assert text_delta_two.delta == " world"
     assert final_text_block.text == "Hello world"
@@ -150,7 +157,13 @@ def test_assemble_stream_accumulates_reasoning_and_text_blocks() -> None:
         done_reasoning_block.summary_text
         == "Exploring reasoning traces\n\nFormulating reasoning traces"
     )
-    assert done_reasoning_block.reasoning_signature == '{"id":"rs_123"}'
+    assert (
+        _expect_metadata_string(
+            done_reasoning_block,
+            "reasoning_signature",
+        )
+        == '{"id":"rs_123"}'
+    )
     assert done_text_block.text == "Hello world"
 
 
@@ -309,7 +322,7 @@ def test_assemble_stream_maps_tool_call_events() -> None:
     assert tool_call_delta_two.delta == 'city":"Munich"}'
     assert tool_call_block.call_id == "call_123"
     assert tool_call_block.name == "get_weather"
-    assert tool_call_block.provider_item_id == "fc_123"
+    assert _expect_metadata_string(tool_call_block, "provider_item_id") == "fc_123"
     assert tool_call_block.arguments == {"city": "Munich"}
     assert done.stop_reason == "tool_use"
     assert done_tool_call_block.arguments == {"city": "Munich"}
@@ -709,3 +722,14 @@ def _expect_tool_call_block(
 
     assert isinstance(block, ToolCallBlock)
     return block
+
+
+def _expect_metadata_string(
+    block: AssistantBlock,
+    key: str,
+) -> str:
+    """Assert that a block contains a provider metadata string value."""
+
+    value = block.metadata_string(key)
+    assert value is not None
+    return value

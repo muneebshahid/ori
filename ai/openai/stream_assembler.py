@@ -177,7 +177,7 @@ def _finalize_reasoning_block(
 
     if event["summary_text"]:
         block.summary_text = event["summary_text"]
-    block.provider_metadata = _build_metadata(
+    block.provider_metadata = ProviderMetadata.from_values(
         reasoning_signature=event["reasoning_signature"],
     )
     event_block = block.model_copy(deep=True)
@@ -238,7 +238,7 @@ def _finalize_text_block(
         return None
 
     block.text = event["text"]
-    block.provider_metadata = _build_metadata(
+    block.provider_metadata = ProviderMetadata.from_values(
         message_id=event["item_id"],
         phase=event["phase"],
     )
@@ -305,7 +305,7 @@ def _finalize_tool_call_block(
     block.call_id = event["call_id"]
     block.name = event["name"]
     block.arguments = event["arguments"]
-    block.provider_metadata = _build_metadata(
+    block.provider_metadata = ProviderMetadata.from_values(
         provider_item_id=event["provider_item_id"],
     )
     event_block = block.model_copy(deep=True)
@@ -380,26 +380,3 @@ def _copy_blocks(blocks: list[AssistantBlock]) -> list[AssistantBlock]:
     """Return an isolated deep copy of accumulated blocks."""
 
     return [block.model_copy(deep=True) for block in blocks]
-
-
-def _build_metadata(
-    *,
-    reasoning_signature: str | None = None,
-    message_id: str | None = None,
-    phase: str | None = None,
-    provider_item_id: str | None = None,
-) -> ProviderMetadata | None:
-    """Build provider metadata when OpenAI supplied replay data."""
-
-    data = {}
-    if reasoning_signature is not None:
-        data["reasoning_signature"] = reasoning_signature
-    if message_id is not None:
-        data["message_id"] = message_id
-    if phase is not None:
-        data["phase"] = phase
-    if provider_item_id is not None:
-        data["provider_item_id"] = provider_item_id
-    if not data:
-        return None
-    return ProviderMetadata(data=data)

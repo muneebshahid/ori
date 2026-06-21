@@ -35,7 +35,6 @@ from ai.types.conversation import (
 )
 from ai.types.stream_events import (
     Phase,
-    ProviderMetadata,
     ReasoningBlock,
     TextBlock,
     ToolCallBlock,
@@ -126,10 +125,7 @@ def _serialize_assistant_turn(
     for block_index, block in enumerate(turn.blocks):
         match block:
             case ReasoningBlock():
-                if reasoning_signature := _read_provider_string(
-                    block.provider_metadata,
-                    "reasoning_signature",
-                ):
+                if reasoning_signature := block.metadata_string("reasoning_signature"):
                     items.append(
                         _serialize_assistant_reasoning_block(reasoning_signature)
                     )
@@ -184,11 +180,11 @@ def _serialize_assistant_text_block(
         "type": "message",
         "role": "assistant",
         "status": "completed",
-        "id": _read_provider_string(block.provider_metadata, "message_id")
+        "id": block.metadata_string("message_id")
         or _build_fallback_message_id(assistant_turn_index, block_index),
         "content": [output_text],
     }
-    if phase := _read_provider_phase(block.provider_metadata):
+    if phase := _read_provider_phase(block):
         message["phase"] = phase
     return message
 
@@ -198,8 +194,7 @@ def _serialize_assistant_tool_call_block(
 ) -> ResponseFunctionToolCallParam:
     return {
         "type": "function_call",
-        "id": _read_provider_string(block.provider_metadata, "provider_item_id")
-        or block.call_id,
+        "id": block.metadata_string("provider_item_id") or block.call_id,
         "call_id": block.call_id,
         "name": block.name,
         "arguments": json.dumps(block.arguments),
@@ -279,24 +274,10 @@ def _build_fallback_message_id(
     return f"msg_{assistant_turn_index}_{block_index}"
 
 
-def _read_provider_string(
-    metadata: ProviderMetadata | None,
-    key: str,
-) -> str | None:
-    """Read a string value from provider metadata."""
-
-    if metadata is None:
-        return None
-    value = metadata.data.get(key)
-    if isinstance(value, str):
-        return value
-    return None
-
-
-def _read_provider_phase(metadata: ProviderMetadata | None) -> Phase | None:
+def _read_provider_phase(block: TextBlock) -> Phase | None:
     """Read an OpenAI message phase from provider metadata."""
 
-    value = _read_provider_string(metadata, "phase")
+    value = block.metadata_string("phase")
     if value == "commentary":
         return "commentary"
     if value == "final_answer":

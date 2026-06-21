@@ -26,6 +26,7 @@ from ai.openai.provider import stream_api, stream_subscription
 from ai.openai.subscription_event_adapter import SubscriptionEventPayload
 from ai.openai.serialization import serialize_history_items
 from ai.types.stream_events import (
+    AssistantBlock,
     ProviderStreamEvent,
     ReasoningBlock,
     ReasoningDeltaEvent,
@@ -589,6 +590,15 @@ def _expect_tool_call_block(
     return block
 
 
+def _expect_metadata_string(
+    block: AssistantBlock,
+    key: str,
+) -> str:
+    value = block.metadata_string(key)
+    assert value is not None
+    return value
+
+
 def _collect_events(
     client: FakeOpenAIClient,
     tools: Sequence[ToolDefinition] | None = None,
@@ -802,12 +812,16 @@ def test_stream_maps_raw_events_into_block_stream() -> None:
         done_reasoning_block.summary_text
         == "Exploring reasoning traces\n\nFormulating reasoning traces"
     )
-    assert done_reasoning_block.reasoning_signature is not None
-    assert (
-        done_reasoning_block.reasoning_signature
-        == final_reasoning_block.reasoning_signature
+    done_reasoning_signature = _expect_metadata_string(
+        done_reasoning_block,
+        "reasoning_signature",
     )
-    assert json.loads(done_reasoning_block.reasoning_signature) == {
+    final_reasoning_signature = _expect_metadata_string(
+        final_reasoning_block,
+        "reasoning_signature",
+    )
+    assert done_reasoning_signature == final_reasoning_signature
+    assert json.loads(done_reasoning_signature) == {
         "id": "rs_123",
         "type": "reasoning",
         "summary": [
@@ -1022,7 +1036,7 @@ def test_stream_maps_function_tool_call_events() -> None:
     assert tool_call_delta_two.delta == 'city":"Munich"}'
     assert tool_call_block.call_id == "call_123"
     assert tool_call_block.name == "get_weather"
-    assert tool_call_block.provider_item_id == "fc_123"
+    assert _expect_metadata_string(tool_call_block, "provider_item_id") == "fc_123"
     assert tool_call_block.arguments == {"city": "Munich"}
     assert done.stop_reason == "tool_use"
     assert done_tool_call_block.arguments == {"city": "Munich"}

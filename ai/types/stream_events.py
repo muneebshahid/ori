@@ -1,5 +1,7 @@
 """Provider stream events and replayable assistant block contracts."""
 
+from __future__ import annotations
+
 from typing import Literal, TypeAlias
 
 from pydantic import BaseModel, Field
@@ -22,60 +24,60 @@ class ProviderMetadata(BaseModel):
 
     data: JsonObject = Field(default_factory=dict)
 
+    @classmethod
+    def from_values(cls, **values: str | None) -> ProviderMetadata | None:
+        """Build metadata from provider values, omitting absent entries."""
 
-class TextBlock(BaseModel):
+        data: JsonObject = {
+            key: value for key, value in values.items() if value is not None
+        }
+        if not data:
+            return None
+        return cls(data=data)
+
+    def string_value(self, key: str) -> str | None:
+        """Return a string metadata value when present."""
+
+        value = self.data.get(key)
+        if isinstance(value, str):
+            return value
+        return None
+
+
+class AssistantBlockBase(BaseModel):
+    """Base contract for replayable assistant content blocks."""
+
+    provider_metadata: ProviderMetadata | None = None
+
+    def metadata_string(self, key: str) -> str | None:
+        """Return a provider metadata string value when present."""
+
+        if self.provider_metadata is None:
+            return None
+        return self.provider_metadata.string_value(key)
+
+
+class TextBlock(AssistantBlockBase):
     """Replayable assistant text block."""
 
     type: Literal["text"] = "text"
     text: str
-    provider_metadata: ProviderMetadata | None = None
-
-    @property
-    def message_id(self) -> str | None:
-        """Return the provider message id when replay metadata includes it."""
-
-        return _metadata_string(self.provider_metadata, "message_id")
-
-    @property
-    def phase(self) -> Phase | None:
-        """Return the provider message phase when replay metadata includes it."""
-
-        value = _metadata_string(self.provider_metadata, "phase")
-        if value == "commentary":
-            return "commentary"
-        if value == "final_answer":
-            return "final_answer"
-        return None
 
 
-class ReasoningBlock(BaseModel):
+class ReasoningBlock(AssistantBlockBase):
     """Replayable assistant reasoning block."""
 
     type: Literal["reasoning"] = "reasoning"
     summary_text: str
-    provider_metadata: ProviderMetadata | None = None
-
-    @property
-    def reasoning_signature(self) -> str | None:
-        """Return the provider reasoning signature when present."""
-
-        return _metadata_string(self.provider_metadata, "reasoning_signature")
 
 
-class ToolCallBlock(BaseModel):
+class ToolCallBlock(AssistantBlockBase):
     """Replayable assistant tool-call block."""
 
     type: Literal["tool_call"] = "tool_call"
     call_id: str
     name: str
     arguments: JsonObject = Field(default_factory=dict)
-    provider_metadata: ProviderMetadata | None = None
-
-    @property
-    def provider_item_id(self) -> str | None:
-        """Return the provider item id when replay metadata includes it."""
-
-        return _metadata_string(self.provider_metadata, "provider_item_id")
 
 
 AssistantBlock: TypeAlias = TextBlock | ReasoningBlock | ToolCallBlock
@@ -203,17 +205,3 @@ StreamTerminalEvent: TypeAlias = StreamDoneEvent | StreamErrorEvent
 ProviderStreamEvent: TypeAlias = (
     StreamStartEvent | StreamUpdateEvent | StreamDoneEvent | StreamErrorEvent
 )
-
-
-def _metadata_string(
-    metadata: ProviderMetadata | None,
-    key: str,
-) -> str | None:
-    """Read a string value from provider metadata."""
-
-    if metadata is None:
-        return None
-    value = metadata.data.get(key)
-    if isinstance(value, str):
-        return value
-    return None
