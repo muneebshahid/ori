@@ -290,7 +290,7 @@ sequenceDiagram
     Stream->>Agent: stream_done
     Agent->>Hist: append AssistantTurn to run-local history
     Agent-->>Agent: emit MessageEndEvent
-    Agent-->>Agent: emit TurnEndEvent
+    Agent-->>Agent: emit TurnEndEvent(tool_executions=[])
 
     SDK->>Adapter: ResponseIncompleteEvent(content_filter)
     Sub->>Adapter: response.incomplete or response.done(status=incomplete)
