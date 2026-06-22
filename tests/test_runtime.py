@@ -23,12 +23,14 @@ from ai.types.conversation import ConversationItem, UserMessage
 from ai.types.stream_events import (
     ProviderStreamEvent,
 )
-from ai.types.tools import ToolDefinition, ToolResult
+from ai.types.tools import ToolDefinition, ToolResult, ToolTextContent
 from tests.support.async_streams import async_stream
 from tests.support.agent_streams import (
     StreamInvocation,
     build_stream_fn,
     final_text_stream,
+    stream_error,
+    stream_start,
     tool_call_stream,
 )
 from tests.support.conversation_assertions import (
@@ -221,6 +223,29 @@ async def _get_weather(city: str) -> ToolResult:
     """Return deterministic weather text for runtime tests."""
 
     return ToolResult.text(f"{city}: sunny")
+
+
+async def _raise_weather_error(city: str) -> ToolResult:
+    """Raise a deterministic weather failure for runtime tests."""
+
+    _ = city
+    raise RuntimeError("weather unavailable")
+
+
+def _failing_tool() -> ToolDefinition:
+    """Build a deterministic failing tool definition for runtime tests."""
+
+    return ToolDefinition(
+        name="fail_weather",
+        description="Raise a deterministic weather failure.",
+        input_schema={
+            "type": "object",
+            "properties": {"city": {"type": "string"}},
+            "required": ["city"],
+            "additionalProperties": False,
+        },
+        fn=_raise_weather_error,
+    )
 
 
 def test_runtime_creates_generated_and_explicit_sessions() -> None:
@@ -472,6 +497,58 @@ def test_session_prompt_persists_tool_result_at_execution_end() -> None:
     assert expect_assistant_turn(session.history[1]).response_id == "resp_tool"
     assert expect_tool_result_turn(session.history[2]).call_id == "call_weather"
     assert tool_execution_end.outcome.tool_result_turn == session.history[2]
+
+
+def test_session_prompt_persists_stream_error_history() -> None:
+    """Persist provider stream failures as assistant error turns."""
+
+    invocations: list[StreamInvocation] = []
+    runtime = _runtime_with_streams(
+        [[stream_start("resp_error"), stream_error("resp_error", "Socket closed")]],
+        invocations,
+    )
+    session = runtime.session(session_id="stream-error")
+
+    events = _collect_prompt_events(runtime, session.id, "hello")
+
+    assert isinstance(events[-1], AgentEndEvent)
+    assert expect_user_message(session.history[0]).content == "hello"
+    assistant_turn = expect_assistant_turn(session.history[1])
+    assert assistant_turn.response_id == "resp_error"
+    assert assistant_turn.status == "error"
+    assert assistant_turn.stop_reason == "error"
+    assert assistant_turn.error_message == "Socket closed"
+
+
+def test_session_prompt_persists_tool_exception_history() -> None:
+    """Persist tool exceptions as replayable error tool results."""
+
+    invocations: list[StreamInvocation] = []
+    runtime = _runtime_with_streams(
+        [
+            tool_call_stream(
+                response_id="resp_tool",
+                call_id="call_weather",
+                tool_name="fail_weather",
+                arguments={"city": "Munich"},
+            ),
+            final_text_stream("resp_final", "Tool failed."),
+        ],
+        invocations,
+        tools=[_failing_tool()],
+    )
+    session = runtime.session(session_id="tool-error")
+
+    _collect_prompt_events(runtime, session.id, "check weather")
+
+    tool_result = expect_tool_result_turn(session.history[2])
+    assert tool_result.call_id == "call_weather"
+    assert tool_result.tool_name == "fail_weather"
+    assert tool_result.is_error is True
+    content = tool_result.content[0]
+    assert isinstance(content, ToolTextContent)
+    assert content.text == "weather unavailable"
+    assert expect_assistant_turn(session.history[3]).response_id == "resp_final"
 
 
 def test_runtime_keeps_session_histories_independent() -> None:
