@@ -10,7 +10,7 @@ from agent.history import (
     SessionAlreadyExistsError,
     SessionNotFoundError,
 )
-from agent.runtime import AgentRuntime, Session
+from agent.runtime import AgentRuntime, Session, SessionBusyError
 from agent.types import (
     AgentEndEvent,
     AgentEvent,
@@ -386,8 +386,8 @@ def test_session_prompt_replays_prior_history_on_next_prompt() -> None:
     assert expect_assistant_turn(session.history[3]).response_id == "resp_second"
 
 
-def test_session_prompt_serializes_overlapping_same_session_prompts() -> None:
-    """Keep same-session prompts ordered when callers overlap."""
+def test_session_prompt_rejects_overlapping_same_session_prompts() -> None:
+    """Reject same-session prompts while a prompt is already active."""
 
     async def _run() -> None:
         """Run overlapping prompts through one event loop."""
@@ -400,28 +400,58 @@ def test_session_prompt_serializes_overlapping_same_session_prompts() -> None:
         first_task = asyncio.create_task(_consume_prompt(session, "first"))
         await _wait_for_invocation_count(invocations, 1)
         second_task = asyncio.create_task(_consume_prompt(session, "second"))
-        await asyncio.sleep(0)
 
-        assert len(invocations) == 1
+        with pytest.raises(SessionBusyError, match="overlap"):
+            await second_task
         assert expect_user_message(session.history[0]).content == "first"
         assert len(session.history) == 1
 
         releases[0].set()
+        await first_task
+
+        second_after_completion = asyncio.create_task(
+            _consume_prompt(session, "second")
+        )
         await _wait_for_invocation_count(invocations, 2)
-        second_request_history = invocations[1].history
-
-        assert len(second_request_history) == 3
-        assert expect_user_message(second_request_history[0]).content == "first"
-        assert expect_assistant_turn(second_request_history[1]).response_id == "resp_0"
-        assert expect_user_message(second_request_history[2]).content == "second"
-
         releases[1].set()
-        await asyncio.gather(first_task, second_task)
+        await second_after_completion
 
         assert expect_user_message(session.history[0]).content == "first"
         assert expect_assistant_turn(session.history[1]).response_id == "resp_0"
         assert expect_user_message(session.history[2]).content == "second"
         assert expect_assistant_turn(session.history[3]).response_id == "resp_1"
+
+    asyncio.run(_run())
+
+
+def test_session_prompt_rejects_reentry_while_yielding_terminal_event() -> None:
+    """Reject reentrant prompts while the active prompt is yielding events."""
+
+    async def _run() -> None:
+        """Start a nested prompt from inside terminal event handling."""
+
+        invocations: list[StreamInvocation] = []
+        runtime = _runtime_with_streams(
+            [
+                final_text_stream("resp_first", "first answer"),
+                final_text_stream("resp_second", "second answer"),
+            ],
+            invocations,
+        )
+        session = runtime.session(session_id="reentry")
+
+        async for event in session.prompt("first"):
+            if isinstance(event, AgentEndEvent):
+                with pytest.raises(SessionBusyError, match="reentry"):
+                    await _consume_prompt(session, "second")
+
+        await _consume_prompt(session, "second")
+
+        assert len(invocations) == 2
+        assert expect_user_message(session.history[0]).content == "first"
+        assert expect_assistant_turn(session.history[1]).response_id == "resp_first"
+        assert expect_user_message(session.history[2]).content == "second"
+        assert expect_assistant_turn(session.history[3]).response_id == "resp_second"
 
     asyncio.run(_run())
 
