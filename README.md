@@ -22,11 +22,13 @@ A small Python-native runtime for tool-using agent sessions.
 ## Architecture
 
 ```
-ori/                 # Public package facades
-agent/               # Core agent orchestration and event dispatch
-ai/
+ori/
+├── history/         # Session metadata and conversation history stores
 ├── openai/          # OpenAI provider implementation
-└── types/           # Shared type definitions for contracts, tools, and streams
+├── tools/           # Built-in local tool implementations
+├── types/           # Provider-neutral contracts for conversations and tools
+├── events.py        # Runtime event contracts
+└── runtime.py       # Session runtime facade
 tests/               # Test suite
 ```
 
