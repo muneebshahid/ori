@@ -59,7 +59,8 @@ from ai.types import ToolDefinition, ToolResult
 `agent` exposes the runtime, session, history-store, and runtime-error
 contracts. `agent.types` exposes structured runtime events yielded by
 `Session.prompt(...)`. `ai.types` exposes provider-neutral conversation, stream,
-and tool contracts. `ai.openai` exposes the supported OpenAI stream entrypoints.
+and tool contracts. `ai.openai` exposes the implemented OpenAI stream
+entrypoint.
 
 ## Development
 

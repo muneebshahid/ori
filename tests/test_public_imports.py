@@ -12,7 +12,7 @@ from agent import (
     SessionNotFoundError,
 )
 from agent.types import AgentEndEvent, AgentEvent, MessageEndEvent, StreamFn
-from ai.openai import stream_api, stream_subscription
+from ai.openai import stream_api
 from ai.types import (
     AsyncEventStream,
     ConversationItem,
@@ -46,8 +46,7 @@ def test_documented_public_imports_run_fake_prompt() -> None:
     assert len(session.history) == 2
     assert issubclass(SessionBusyError, RuntimeError)
     assert issubclass(SessionNotFoundError, KeyError)
-    assert stream_api is not None
-    assert stream_subscription is not None
+    assert callable(stream_api)
 
 
 def _fake_stream_fn() -> StreamFn:
