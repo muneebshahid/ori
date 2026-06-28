@@ -1,19 +1,9 @@
 """Tool execution boundary for model-requested tool calls."""
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 
 from ori.types.tools import JsonObject, ToolDefinition, ToolFunction, ToolResult
 from ori.events import ToolExecutionOutcome
-
-
-@dataclass(frozen=True)
-class ToolExecutionRequest:
-    """Model-requested tool execution."""
-
-    call_id: str
-    tool_name: str
-    arguments: JsonObject
 
 
 class ToolExecutor:
@@ -32,17 +22,20 @@ class ToolExecutor:
 
     async def execute(
         self,
-        request: ToolExecutionRequest,
+        *,
+        call_id: str,
+        tool_name: str,
+        arguments: JsonObject,
     ) -> ToolExecutionOutcome:
         """Execute one tool request and return a normalized outcome."""
 
         result, is_error = await self._call_tool(
-            request.tool_name,
-            request.arguments,
+            tool_name,
+            arguments,
         )
         return ToolExecutionOutcome.from_result(
-            call_id=request.call_id,
-            tool_name=request.tool_name,
+            call_id=call_id,
+            tool_name=tool_name,
             result=result,
             is_error=is_error,
         )

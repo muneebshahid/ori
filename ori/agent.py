@@ -24,7 +24,7 @@ from ori.types.stream_events import (
 )
 from ori.types.tools import JsonObject
 from ori.prompt import PROMPT, build_system_prompt
-from ori.tool_executor import ToolExecutionRequest, ToolExecutor
+from ori.tool_executor import ToolExecutor
 from ori.events import (
     AgentEndEvent,
     AgentEvent,
@@ -206,11 +206,9 @@ async def _execute_tool(
     )
 
     outcome = await tool_executor.execute(
-        ToolExecutionRequest(
-            call_id=call_id,
-            tool_name=tool_name,
-            arguments=arguments,
-        )
+        call_id=call_id,
+        tool_name=tool_name,
+        arguments=arguments,
     )
     yield ToolExecutionEndEvent(outcome=outcome)
 
