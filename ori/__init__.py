@@ -8,7 +8,7 @@ from ori.history import (
     SessionRecord,
 )
 from ori.runtime import AgentRuntime, Session, SessionBusyError
-from ori.tool_executor import ToolExecutionRequest, ToolExecutor
+from ori.tool_executor import ToolExecutor
 
 __all__ = [
     "AgentRuntime",
@@ -19,6 +19,5 @@ __all__ = [
     "SessionBusyError",
     "SessionNotFoundError",
     "SessionRecord",
-    "ToolExecutionRequest",
     "ToolExecutor",
 ]

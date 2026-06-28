@@ -2,7 +2,7 @@
 
 import pytest
 
-from ori.tool_executor import ToolExecutionRequest, ToolExecutor
+from ori.tool_executor import ToolExecutor
 from ori.types.tools import ToolDefinition, ToolResult, ToolTextContent
 
 
@@ -67,11 +67,9 @@ async def test_tool_executor_executes_registered_tool() -> None:
     executor = ToolExecutor([_sample_tool()])
 
     outcome = await executor.execute(
-        ToolExecutionRequest(
-            call_id="call_weather",
-            tool_name="get_weather",
-            arguments={"city": "Munich"},
-        )
+        call_id="call_weather",
+        tool_name="get_weather",
+        arguments={"city": "Munich"},
     )
 
     assert outcome.tool_result_turn.call_id == "call_weather"
@@ -87,11 +85,9 @@ async def test_tool_executor_normalizes_missing_tool() -> None:
     executor = ToolExecutor()
 
     outcome = await executor.execute(
-        ToolExecutionRequest(
-            call_id="call_missing",
-            tool_name="missing_tool",
-            arguments={},
-        )
+        call_id="call_missing",
+        tool_name="missing_tool",
+        arguments={},
     )
 
     assert outcome.tool_result_turn.call_id == "call_missing"
@@ -107,11 +103,9 @@ async def test_tool_executor_normalizes_tool_exception() -> None:
     executor = ToolExecutor([_failing_tool()])
 
     outcome = await executor.execute(
-        ToolExecutionRequest(
-            call_id="call_fail",
-            tool_name="fail_weather",
-            arguments={"city": "Munich"},
-        )
+        call_id="call_fail",
+        tool_name="fail_weather",
+        arguments={"city": "Munich"},
     )
 
     assert outcome.tool_result_turn.call_id == "call_fail"
