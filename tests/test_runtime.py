@@ -349,6 +349,46 @@ def test_session_prompt_replays_prior_history_on_next_prompt() -> None:
     assert expect_assistant_turn(session_history[3]).response_id == "resp_second"
 
 
+def test_session_prompt_replays_tool_history_on_later_prompt() -> None:
+    """Include completed tool turns when prompting the same session later."""
+
+    runtime, provider = _runtime_with_streams(
+        [
+            tool_call_stream(
+                response_id="resp_tool",
+                call_id="call_weather",
+                tool_name="get_weather",
+                arguments={"city": "Munich"},
+            ),
+            final_text_stream("resp_final", "Munich is sunny."),
+            final_text_stream("resp_next", "I remember the tool result."),
+        ],
+        tools=_sample_tools(),
+    )
+    session = runtime.session(session_id="tool-history")
+
+    _collect_prompt_events(runtime, session.id, "check weather")
+    _collect_prompt_events(runtime, session.id, "what happened?")
+
+    next_prompt_request_history = provider.history(2)
+    assert len(next_prompt_request_history) == 5
+    assert expect_user_message(next_prompt_request_history[0]).content == (
+        "check weather"
+    )
+    assert expect_assistant_turn(next_prompt_request_history[1]).response_id == (
+        "resp_tool"
+    )
+    assert expect_tool_result_turn(next_prompt_request_history[2]).tool_name == (
+        "get_weather"
+    )
+    assert expect_assistant_turn(next_prompt_request_history[3]).response_id == (
+        "resp_final"
+    )
+    assert expect_user_message(next_prompt_request_history[4]).content == (
+        "what happened?"
+    )
+
+
 def test_session_prompt_rejects_overlapping_same_session_prompts() -> None:
     """Reject same-session prompts while a prompt is already active."""
 
